@@ -169,6 +169,7 @@ def make_settings() -> Callable[..., Settings]:
             "tavily_api_key": "test-tavily-key",
             "database_url": None,
             "per_source_timeout_seconds": 5.0,
+            "synthesis_timeout_seconds": 5.0,
         }
         return Settings(_env_file=None, **(base | overrides))  # type: ignore[arg-type]
 

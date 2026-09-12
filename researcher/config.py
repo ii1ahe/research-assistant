@@ -153,6 +153,21 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     cache_ttl_seconds: int = Field(default=86400, ge=0)
     per_source_timeout_seconds: float = Field(default=10.0, gt=0)
+    #: The deadline for one synthesis, retries included. Deliberately separate
+    #: from ``per_source_timeout_seconds``, because the two bound different
+    #: things. A search request that has not answered in ten seconds is not
+    #: going to, and abandoning it costs one round trip; an LLM completion
+    #: legitimately takes tens of seconds, and abandoning it throws away work
+    #: that was nearly finished.
+    #:
+    #: Sharing one knob made that distinction invisible. Raising the fetch
+    #: budget to accommodate a slow search provider silently bought synthesis
+    #: time as well, and lowering it to fail fast on a dead host silently
+    #: started killing synthesis. Phase 7 found the cost: measured against the
+    #: configured Gemini model, synthesis ran at 2.9s, 3.9s, 6.1s and 7.6s on a
+    #: quiet run and then hit the ten-second ceiling — roughly one synthesis in
+    #: six refused, on a machine doing nothing else.
+    synthesis_timeout_seconds: float = Field(default=30.0, gt=0)
     max_results_per_source: int = Field(default=3, ge=1, le=20)
     max_parallel_sources: int = Field(default=3, ge=1, le=16)
     max_question_length: int = Field(default=500, ge=1)

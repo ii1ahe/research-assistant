@@ -91,7 +91,9 @@ select = [
 # `ai` lives at the repository root and ships with the submission, so imports
 # of it group with our own code rather than with installed dependencies. The
 # `src` list above deliberately omits the root, so this must be stated here.
-known-first-party = ["ai", "researcher", "tests"]
+# `scripts` is ours too: `scripts/bench.py` is the benchmark the README quotes,
+# and `tests/test_bench.py` imports it as a first-party module.
+known-first-party = ["ai", "researcher", "scripts", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 # print() is permitted for CLI/user-facing output only, never for diagnostics.
@@ -101,11 +103,16 @@ known-first-party = ["ai", "researcher", "tests"]
 "scripts/*" = ["T20"]
 
 # --- mypy ------------------------------------------------------------------
-# Type checking covers the student-owned application package only. The supplied
-# `ai` package is an immutable external dependency and is deliberately excluded.
+# Type checking covers the student-owned code only: the application package and
+# the benchmark script, which are both ours. The supplied `ai` package is an
+# immutable external dependency and is deliberately excluded.
+#
+# `scripts` is included because `scripts/bench.py` is what the README's timings
+# come from. A number in the report is only as good as the code that printed it,
+# so the benchmark is held to the same bar as the application it measures.
 [tool.mypy]
 python_version = "3.14"
-files = ["researcher"]
+files = ["researcher", "scripts"]
 strict = true
 warn_unreachable = true
 warn_unused_ignores = true

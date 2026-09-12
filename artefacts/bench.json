@@ -1,0 +1,394 @@
+{
+  "runs": [
+    {
+      "label": "sequential",
+      "bound": 1,
+      "wall_seconds": 83.52191527600007,
+      "retrieval_seconds": 4.830882106998615,
+      "synthesis_seconds": 38.621637210999324,
+      "total_seconds": 43.452671,
+      "failures": 0,
+      "answered": 5,
+      "questions": [
+        {
+          "id": "q1",
+          "difficulty": "easy",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.8451150529981533,
+          "synthesis_seconds": 8.300610838003195,
+          "total_seconds": 9.145771,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.4362463930010563,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.24275764399862965,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.16493359400192276,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q2",
+          "difficulty": "medium",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 1.0619586989996606,
+          "synthesis_seconds": 8.715201685998181,
+          "total_seconds": 9.777186,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.5593674489973637,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.36759296499803895,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.13369201000023168,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q3",
+          "difficulty": "medium",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.9771057619982457,
+          "synthesis_seconds": 7.787122386998817,
+          "total_seconds": 8.764264,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.6095114210002066,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.216221875998599,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.14956778999840026,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q4",
+          "difficulty": "hard",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 1.0806545710001956,
+          "synthesis_seconds": 8.487521087001369,
+          "total_seconds": 9.568205,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.5825333380016673,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.30993604800096364,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.18689094400178874,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q5",
+          "difficulty": "hard",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.8660480220023601,
+          "synthesis_seconds": 5.3311812129977625,
+          "total_seconds": 6.197245,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.44863817100122105,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.2805064009990019,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.1360969240013219,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "concurrent",
+      "bound": 3,
+      "wall_seconds": 83.39048610199825,
+      "retrieval_seconds": 2.8897736109938705,
+      "synthesis_seconds": 40.436407858000166,
+      "total_seconds": 43.326249000000004,
+      "failures": 0,
+      "answered": 5,
+      "questions": [
+        {
+          "id": "q1",
+          "difficulty": "easy",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.4928517269981967,
+          "synthesis_seconds": 8.216357576999144,
+          "total_seconds": 8.709217,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.4926726010016864,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.23659377900185063,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.14189851300034206,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q2",
+          "difficulty": "medium",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.5700160429987591,
+          "synthesis_seconds": 7.127409385000647,
+          "total_seconds": 7.697437,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.5696881359981489,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.32439276699733455,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.13060298699929263,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q3",
+          "difficulty": "medium",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.6790371169990976,
+          "synthesis_seconds": 8.013030507001531,
+          "total_seconds": 8.692088,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.6786592539974663,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.13925066599767888,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.15490363800199702,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q4",
+          "difficulty": "hard",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.5427388379976037,
+          "synthesis_seconds": 9.020551260000502,
+          "total_seconds": 9.563299,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.5424844620029035,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.19632284500039532,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.18466956300107995,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        },
+        {
+          "id": "q5",
+          "difficulty": "hard",
+          "sources": [
+            "wikipedia",
+            "arxiv",
+            "web"
+          ],
+          "status": "success",
+          "retrieval_seconds": 0.6051298860002134,
+          "synthesis_seconds": 8.059059128998342,
+          "total_seconds": 8.664208,
+          "outcomes": [
+            {
+              "source": "wikipedia",
+              "status": "success",
+              "elapsed_seconds": 0.44521378699937486,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "arxiv",
+              "status": "success",
+              "elapsed_seconds": 0.6023244659991178,
+              "attempts": 1,
+              "results": 3
+            },
+            {
+              "source": "web",
+              "status": "success",
+              "elapsed_seconds": 0.14101829799983534,
+              "attempts": 1,
+              "results": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "retrieval_valid": true,
+  "synthesis_complete": true,
+  "speedup": {
+    "retrieval": 1.6717164585557778,
+    "end_to_end": 1.0029179078022654
+  }
+}
