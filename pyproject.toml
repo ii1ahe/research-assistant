@@ -91,7 +91,7 @@ select = [
 # `ai` lives at the repository root and ships with the submission, so imports
 # of it group with our own code rather than with installed dependencies. The
 # `src` list above deliberately omits the root, so this must be stated here.
-known-first-party = ["ai", "researcher"]
+known-first-party = ["ai", "researcher", "tests"]
 
 [tool.ruff.lint.per-file-ignores]
 # print() is permitted for CLI/user-facing output only, never for diagnostics.

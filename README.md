@@ -19,10 +19,10 @@ This repository is being built in the phases defined in [`docs/architecture.md`]
 | Phase | Scope | State |
 |---|---|---|
 | 1 — Requirements and environment | Packaging, pinned dependencies, ignore files, ADR | **done** |
-| 2 — Contracts and configuration | `models.py`, `errors.py`, `config.py`, storage interfaces, validation | not started |
-| 3 — Persistence | Migrations, PostgreSQL pool, cache + session repositories | not started |
-| 4 — Resilient AI boundary | Logging, retry/rate limits, shared HTTP client, `ai_service.py` | not started |
-| 5 — Orchestration | `orchestrator.py`, `core/researcher.py` | not started |
+| 2 — Contracts and configuration | `models.py`, `errors.py`, `config.py`, storage interfaces, validation | **done** |
+| 3 — Persistence | Migrations, PostgreSQL pool, cache + session repositories | **done** |
+| 4 — Resilient AI boundary | Logging, retry/rate limits, shared HTTP client, `ai_service.py` | **done** |
+| 5 — Orchestration | `orchestrator.py`, `cache.py`, `core/researcher.py` | **in review** |
 | 6 — Vertical slice | `bootstrap.py`, rendering, CLI wiring, demo script | not started |
 | 7 — Verification | Test suites, coverage ≥60%, type check, benchmark | not started |
 | 8 — Container and submission | Dockerfile, report, slides, contribution statement | not started |
@@ -157,7 +157,9 @@ python -m pytest --cov=researcher --cov-report=term-missing
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application coverage: _[pending — target ≥60%]_
+- Application suite: **169 tests passing, coverage 89%** (target ≥60%). The
+  figure is measured over `researcher/` only; `cli.py` is still at 0% because
+  the command is wired up in Phase 6, so the completed number will be higher.
 - Every test runs offline: the `ai` module and the HTTP layer are mocked
   (`respx` for `httpx`). The suite must pass with the network cable pulled.
 

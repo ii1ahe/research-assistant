@@ -197,7 +197,9 @@ class SourceOutcome(AppModel):
     status: SourceStatus
     sources: tuple[Source, ...] = ()
     elapsed_seconds: float = Field(default=0.0, ge=0.0)
-    attempts: int = Field(default=1, ge=1)
+    #: Requests made to the provider. Zero is legitimate: a cache hit performs
+    #: no request, and ``cache_hit`` is what says so.
+    attempts: int = Field(default=1, ge=0)
     cache_hit: bool = False
     failure: FailureDetail | None = None
 
@@ -222,6 +224,10 @@ class RetrievalResult(AppModel):
 
     outcomes: tuple[SourceOutcome, ...]
     sources: tuple[Source, ...] = ()
+    #: Notes about the retrieval pass itself rather than about any one source —
+    #: currently cache degradation, which is run-wide and would otherwise be
+    #: repeated identically for every source that touched it.
+    warnings: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
