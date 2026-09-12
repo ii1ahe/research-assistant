@@ -86,6 +86,7 @@ against a live provider. Everything else has a working default.
 | `MAX_RESULTS_PER_SOURCE` | no | `3` | Results requested from each source |
 | `MAX_PARALLEL_SOURCES` | no | `3` | Semaphore bound on concurrent source tasks |
 | `MAX_QUESTION_LENGTH` | no | `500` | Longest accepted question, in characters |
+| `WIKIPEDIA_SEARCH` | no | `fulltext` | `fulltext` \| `opensearch` — see below |
 | `DATABASE_URL` | no | — (unset) | PostgreSQL DSN for the cache and session store |
 | `PERSIST_SESSIONS` | no | `true` | Set `false` to run without touching the database |
 
@@ -100,6 +101,33 @@ their own line.
 whenever `LLM_PROVIDER` does. Pairing `LLM_PROVIDER=openai` with a `claude-…`
 model id is rejected at startup with exit status 2 instead of failing later
 with an opaque provider error.
+
+### Why `WIKIPEDIA_SEARCH` exists
+
+The supplied `ai.sources.fetch_wikipedia` searches with the MediaWiki
+`opensearch` API, which prefix-matches the *entire* query against article
+titles. Measured against the live API:
+
+| Query | Titles returned |
+|---|---|
+| `What is photosynthesis and what are its main stages?` | 0 |
+| `photosynthesis` | 3 |
+| `photosynthesis main stages` | 0 |
+| `What is photosynthesis` | 0 |
+
+Only a bare word that happens to begin a title matches. Rewriting the question
+does not help, because `opensearch` matches the whole string — every multi-word
+query above is a reasonable search and every one returns nothing. Since all five
+supplied demo questions are natural-language, the supplied fetcher contributes
+nothing to any of them.
+
+`ai/` is immutable, so `researcher/services/wikipedia.py` replaces the **search
+step** and nothing else: titles come from the MediaWiki full-text search
+(`list=search`), which handles the question as written, and everything after
+that is the supplied behaviour — the same summary endpoint, the same `Source`
+shape. Setting `WIKIPEDIA_SEARCH=opensearch` restores the supplied fetcher
+exactly. The query itself is never rewritten either way; the difference is which
+fetcher receives it.
 
 **If you select `gemini`**, set `LLM_MODEL` explicitly. The supplied
 `ai/providers/google.py` falls back to `gemini-2.0-flash`, which the API now
@@ -171,11 +199,15 @@ python -m pytest --cov=researcher --cov-report=term-missing
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application suite: **256 tests passing, coverage 95%** (target ≥60%). The
+- Application suite: **276 tests passing, coverage 95%** (target ≥60%). The
   figure is measured over `researcher/` only; `__main__.py` is the console-script
   shim and is three lines of delegation.
 - Every test runs offline: the `ai` module and the HTTP layer are mocked
   (`respx` for `httpx`). The suite must pass with the network cable pulled.
+- Offline is **enforced, not merely intended**: an autouse fixture in
+  `conftest.py` refuses any connection off this machine, and permits loopback so
+  the PostgreSQL integration tests still run. `tests/test_offline_guard.py`
+  tests the guard itself.
 
 ## Project layout
 
