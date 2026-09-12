@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+import logging
+import socket
+import uuid
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -13,10 +17,16 @@ from ai.sources import WebSearchProvider
 from researcher.config import Settings
 from researcher.errors import StorageError
 from researcher.models import (
+    PersistenceStatus,
     ProviderIdentity,
+    ResearchRequest,
+    ResearchResult,
+    ResultStatus,
     SourceName,
     SourceOutcome,
     SourceStatus,
+    TimingInfo,
+    utc_now,
 )
 
 
@@ -65,6 +75,75 @@ class FakeWebSearch(WebSearchProvider):
     ) -> list[Source]:
         self.calls.append(query)
         return self.results[:max_results]
+
+
+def make_success(
+    source: SourceName = SourceName.WIKIPEDIA,
+    *,
+    count: int = 1,
+    elapsed_seconds: float = 0.4,
+    cache_hit: bool = False,
+) -> SourceOutcome:
+    """Build a successful outcome carrying ``count`` sources."""
+    return SourceOutcome(
+        source=source,
+        status=SourceStatus.SUCCESS,
+        sources=tuple(make_source(source.value, n) for n in range(1, count + 1)),
+        elapsed_seconds=elapsed_seconds,
+        attempts=0 if cache_hit else 1,
+        cache_hit=cache_hit,
+    )
+
+
+def make_result(
+    *,
+    question: str = "what is photosynthesis",
+    status: ResultStatus = ResultStatus.SUCCESS,
+    answer: AnswerWithCitations | None = None,
+    outcomes: Sequence[SourceOutcome] = (),
+    warnings: Sequence[str] = (),
+    persistence: PersistenceStatus = PersistenceStatus.SKIPPED,
+) -> ResearchResult:
+    """Build a :class:`ResearchResult` that satisfies its own answer/status rule.
+
+    ``ResearchResult`` refuses an answer whose presence disagrees with the
+    status, so a caller that wants to exercise the *rendering* of a failure
+    cannot simply pass ``answer=None`` and ``status=SUCCESS``. The answer is
+    therefore derived from the status when one is not supplied, which keeps each
+    test free to state only the field it is about.
+    """
+    produced = status in (ResultStatus.SUCCESS, ResultStatus.PARTIAL)
+    if produced and answer is None:
+        cited = [outcome.sources[0] for outcome in outcomes if outcome.sources] or [
+            make_source("wikipedia")
+        ]
+        answer = AnswerWithCitations(
+            question=question,
+            answer=" ".join(f"A claim [{index}]." for index in range(1, len(cited) + 1)),
+            citations=[
+                Citation(index=index, source=source)
+                for index, source in enumerate(cited, start=1)
+            ],
+        )
+    elif not produced:
+        answer = None
+
+    started = utc_now()
+    return ResearchResult(
+        request_id=uuid.uuid4(),
+        question=question,
+        status=status,
+        answer=answer,
+        outcomes=tuple(outcomes),
+        warnings=tuple(warnings),
+        timing=TimingInfo(
+            started_at=started,
+            finished_at=started + timedelta(seconds=1.0),
+            retrieval_seconds=0.6,
+            synthesis_seconds=0.4 if produced else 0.0,
+        ),
+        persistence=persistence,
+    )
 
 
 @pytest.fixture
@@ -201,6 +280,72 @@ class BrokenCache:
     async def purge_expired(self, *, now: Any = None) -> int:
         """Fail."""
         raise StorageError("cache unavailable", source="storage")
+
+
+#: Hosts a test may reach: the local machine. The PostgreSQL integration tests
+#: in ``test_storage.py`` talk to a real server on loopback, and loopback still
+#: works with the cable pulled, so allowing it keeps the offline guarantee
+#: meaningful instead of merely strict.
+_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", ""})
+
+
+@pytest.fixture(autouse=True)
+def no_internet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any test that tries to reach off this machine.
+
+    The suite is documented as passing with the network cable pulled, and that
+    was true only by discipline: a test that patched the wrong seam, or a
+    default that changed under it, would quietly reach the live internet and
+    pass anyway. That is the worst kind of test — it is slow, it is flaky, and
+    it reports success for behaviour nobody mocked. This happened once, when the
+    Wikipedia fetcher gained a second implementation: five tests kept passing by
+    calling Wikipedia for real, and the only visible symptom was a run that took
+    two seconds longer.
+
+    Patching ``connect`` rather than ``getaddrinfo`` so the failure is raised at
+    the line that needs fixing. Mocked transports never reach it — ``respx``
+    replaces the transport, so the HTTP layer needs no patch of its own.
+    """
+    real_connect = socket.socket.connect
+
+    def guard(self: socket.socket, address: object) -> None:
+        host = address[0] if isinstance(address, tuple) and address else address
+        if isinstance(address, tuple) and host in _LOOPBACK:
+            return real_connect(self, address)
+        raise RuntimeError(
+            f"the test suite tried to reach the network at {address!r}. Mock it "
+            "with respx or patch the fetcher instead — the suite must run offline."
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", guard)
+
+
+@pytest.fixture
+def restore_researcher_logger() -> Iterator[None]:
+    """Put the ``researcher`` logger back exactly as it was.
+
+    :func:`researcher.bootstrap.configure_logging` mutates process-global state:
+    it installs a handler, sets a level and — the dangerous one — disables
+    ``propagate``. Left in place, that would silence ``caplog`` for every test
+    that ran afterwards, so the suite would pass or fail depending on file
+    order. Requested explicitly by the two modules that call it rather than
+    applied globally, because a fixture that changes nothing should not be
+    invisible everywhere else.
+    """
+    logger = logging.getLogger("researcher")
+    handlers = list(logger.handlers)
+    level, propagate = logger.level, logger.propagate
+    yield
+
+    for handler in list(logger.handlers):
+        if handler not in handlers:
+            logger.removeHandler(handler)
+            handler.close()
+    for handler in handlers:
+        if handler not in logger.handlers:
+            logger.addHandler(handler)
+    logger.setLevel(level)
+    logger.propagate = propagate
 
 
 @pytest.fixture

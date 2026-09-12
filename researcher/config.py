@@ -56,6 +56,7 @@ LLMProviderName = Literal["anthropic", "openai", "gemini"]
 WebSearchProviderName = Literal["tavily", "serper", "duckduckgo"]
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+WikipediaSearch = Literal["fulltext", "opensearch"]
 
 #: Per-provider default model ids.
 #:
@@ -155,6 +156,14 @@ class Settings(BaseSettings):
     max_results_per_source: int = Field(default=3, ge=1, le=20)
     max_parallel_sources: int = Field(default=3, ge=1, le=16)
     max_question_length: int = Field(default=500, ge=1)
+    #: Which Wikipedia search the application uses. ``fulltext`` sends the
+    #: question to the MediaWiki search API; ``opensearch`` uses the supplied
+    #: ``ai.sources.fetch_wikipedia``. The default is ``fulltext`` because the
+    #: supplied fetcher prefix-matches the whole query against article *titles*,
+    #: so it answers a natural-language question with nothing — see
+    #: ``researcher/services/wikipedia.py``. ``opensearch`` is kept selectable
+    #: so the supplied path stays reachable and testable.
+    wikipedia_search: WikipediaSearch = "fulltext"
 
     # --- Persistence -------------------------------------------------------
     #: PostgreSQL DSN. When unset, sessions are not persisted and the status is

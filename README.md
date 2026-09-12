@@ -22,8 +22,8 @@ This repository is being built in the phases defined in [`docs/architecture.md`]
 | 2 — Contracts and configuration | `models.py`, `errors.py`, `config.py`, storage interfaces, validation | **done** |
 | 3 — Persistence | Migrations, PostgreSQL pool, cache + session repositories | **done** |
 | 4 — Resilient AI boundary | Logging, retry/rate limits, shared HTTP client, `ai_service.py` | **done** |
-| 5 — Orchestration | `orchestrator.py`, `cache.py`, `core/researcher.py` | **in review** |
-| 6 — Vertical slice | `bootstrap.py`, rendering, CLI wiring, demo script | not started |
+| 5 — Orchestration | `orchestrator.py`, `cache.py`, `core/researcher.py` | **done** |
+| 6 — Vertical slice | `bootstrap.py`, rendering, CLI wiring, demo script | **in review** |
 | 7 — Verification | Test suites, coverage ≥60%, type check, benchmark | not started |
 | 8 — Container and submission | Dockerfile, report, slides, contribution statement | not started |
 
@@ -86,6 +86,7 @@ against a live provider. Everything else has a working default.
 | `MAX_RESULTS_PER_SOURCE` | no | `3` | Results requested from each source |
 | `MAX_PARALLEL_SOURCES` | no | `3` | Semaphore bound on concurrent source tasks |
 | `MAX_QUESTION_LENGTH` | no | `500` | Longest accepted question, in characters |
+| `WIKIPEDIA_SEARCH` | no | `fulltext` | `fulltext` \| `opensearch` — see below |
 | `DATABASE_URL` | no | — (unset) | PostgreSQL DSN for the cache and session store |
 | `PERSIST_SESSIONS` | no | `true` | Set `false` to run without touching the database |
 
@@ -100,6 +101,33 @@ their own line.
 whenever `LLM_PROVIDER` does. Pairing `LLM_PROVIDER=openai` with a `claude-…`
 model id is rejected at startup with exit status 2 instead of failing later
 with an opaque provider error.
+
+### Why `WIKIPEDIA_SEARCH` exists
+
+The supplied `ai.sources.fetch_wikipedia` searches with the MediaWiki
+`opensearch` API, which prefix-matches the *entire* query against article
+titles. Measured against the live API:
+
+| Query | Titles returned |
+|---|---|
+| `What is photosynthesis and what are its main stages?` | 0 |
+| `photosynthesis` | 3 |
+| `photosynthesis main stages` | 0 |
+| `What is photosynthesis` | 0 |
+
+Only a bare word that happens to begin a title matches. Rewriting the question
+does not help, because `opensearch` matches the whole string — every multi-word
+query above is a reasonable search and every one returns nothing. Since all five
+supplied demo questions are natural-language, the supplied fetcher contributes
+nothing to any of them.
+
+`ai/` is immutable, so `researcher/services/wikipedia.py` replaces the **search
+step** and nothing else: titles come from the MediaWiki full-text search
+(`list=search`), which handles the question as written, and everything after
+that is the supplied behaviour — the same summary endpoint, the same `Source`
+shape. Setting `WIKIPEDIA_SEARCH=opensearch` restores the supplied fetcher
+exactly. The query itself is never rewritten either way; the difference is which
+fetcher receives it.
 
 **If you select `gemini`**, set `LLM_MODEL` explicitly. The supplied
 `ai/providers/google.py` falls back to `gemini-2.0-flash`, which the API now
@@ -121,7 +149,7 @@ persistence as `skipped` rather than as a failure.
 python demo_ai.py --offline
 python demo_ai.py --offline --limit 5
 
-# Application CLI (wired up in Phase 6)
+# Application CLI
 python -m researcher ask "What is the current state of fusion energy research?"
 python -m researcher ask "How does CRISPR-Cas9 work?" --sources wiki,arxiv
 python -m researcher ask "..." --no-cache
@@ -130,6 +158,20 @@ python -m researcher demo
 
 `--no-cache` bypasses the cache in **both** directions — no reads and no writes —
 so runs are reproducible.
+
+The answer is written to stdout and everything about the run — the per-source
+table, the warnings, the timings — to stderr, so a redirect captures the answer
+and nothing else:
+
+```bash
+python -m researcher ask "What is photosynthesis?" > answer.md
+```
+
+Exit statuses are part of the interface, because the intended caller is a script:
+**0** for an answer, including a partial one whose missing sources were
+disclosed; **1** when no usable answer was produced, or a session configured for
+storage was not stored; **2** for bad input or bad configuration — the cases
+where retrying unchanged would spend quota to learn nothing.
 
 ## Sequential vs concurrent benchmark
 
@@ -151,17 +193,21 @@ Synthesis is a later, sequential stage, so end-to-end speedup is lower.
 # Supplied contract tests — must keep passing, run during grading
 python -m pytest tests/test_ai_smoke.py -v
 
-# Full application suite with coverage (Phase 7)
+# Full application suite with coverage
 python -m pytest --cov=researcher --cov-report=term-missing
 ```
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application suite: **169 tests passing, coverage 89%** (target ≥60%). The
-  figure is measured over `researcher/` only; `cli.py` is still at 0% because
-  the command is wired up in Phase 6, so the completed number will be higher.
+- Application suite: **276 tests passing, coverage 95%** (target ≥60%). The
+  figure is measured over `researcher/` only; `__main__.py` is the console-script
+  shim and is three lines of delegation.
 - Every test runs offline: the `ai` module and the HTTP layer are mocked
   (`respx` for `httpx`). The suite must pass with the network cable pulled.
+- Offline is **enforced, not merely intended**: an autouse fixture in
+  `conftest.py` refuses any connection off this machine, and permits loopback so
+  the PostgreSQL integration tests still run. `tests/test_offline_guard.py`
+  tests the guard itself.
 
 ## Project layout
 
@@ -171,13 +217,17 @@ python -m pytest --cov=researcher --cov-report=term-missing
 ├── researcher/            # our application package
 │   ├── __init__.py
 │   ├── __main__.py        # `python -m researcher`
+│   ├── bootstrap.py       # the one module that knows the whole graph
 │   ├── cli.py             # argument surface + exit statuses
 │   ├── config.py          # validated settings, provider resolution
+│   ├── core/
+│   │   └── researcher.py  # the use case: retrieve, synthesise, persist
 │   ├── errors.py          # failure categories + retryability
 │   ├── models.py          # typed data contracts
-│   ├── validation.py      # input normalisation + output checks
-│   └── storage/
-│       └── interfaces.py  # cache + session protocols (ADR-004)
+│   ├── rendering.py       # answer, diagnostics and batch summary
+│   ├── services/          # orchestrator, ai_service, cache, resilience
+│   ├── storage/           # interfaces (ADR-004) + PostgreSQL and in-memory
+│   └── validation.py      # input normalisation + output checks
 ├── tests/                 # provided smoke tests + our suite
 ├── data/                  # 5 sample research questions
 ├── docs/
@@ -197,9 +247,9 @@ Later phases add `scripts/demo.py`, `scripts/bench.py`, `migrations/`,
 
 ## Architecture in one diagram
 
-_[Embedded at Phase 6, matching the diagram in `report/report.pdf`. The full
-control contract and module responsibilities are in
-[`docs/architecture.md`](docs/architecture.md).]_
+The report reproduces this diagram. The full control contract, the ADRs behind
+each arrow and the module responsibilities are in
+[`docs/architecture.md`](docs/architecture.md).
 
 ```
         CLI (`python -m researcher ask`)

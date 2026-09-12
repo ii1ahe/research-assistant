@@ -55,6 +55,7 @@ from researcher.models import (
 )
 from researcher.services.http_client import build_client
 from researcher.services.resilience import Attempts, RetryPolicy, deadline, execute
+from researcher.services.wikipedia import fetch_wikipedia_fulltext
 from researcher.validation import validate_answer
 
 __all__ = ["AIService"]
@@ -310,6 +311,13 @@ class AIService:
     async def _fetch(self, source: SourceName, query: str, max_results: int) -> list[Source]:
         """Make one attempt at one source.
 
+        The query reaches every fetcher untouched. Wikipedia's is the one place
+        that could have been an exception — the supplied search cannot answer a
+        question — and it is handled by choosing a different *fetcher* rather
+        than by rewriting the query, so a query that has been through this
+        method is still the query the user typed. See
+        ``researcher/services/wikipedia.py``.
+
         Raises:
             ResearcherError: Translated from the supplied package's
                 ``ProviderError``. Never lets the original escape.
@@ -317,7 +325,9 @@ class AIService:
         client = self._http()
         try:
             if source is SourceName.WIKIPEDIA:
-                return await fetch_wikipedia(query, max_results=max_results, client=client)
+                if self._settings.wikipedia_search == "opensearch":
+                    return await fetch_wikipedia(query, max_results=max_results, client=client)
+                return await fetch_wikipedia_fulltext(query, max_results=max_results, client=client)
             if source is SourceName.ARXIV:
                 return await fetch_arxiv(query, max_results=max_results, client=client)
             return await fetch_web(
