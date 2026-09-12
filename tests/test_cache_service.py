@@ -192,3 +192,45 @@ async def test_a_failed_purge_reports_nothing_removed(make_settings: SettingsFac
     service = CacheService(BrokenCache(), make_settings())
 
     assert await service.purge_expired() == 0
+
+
+# ---------------------------------------------------------------------------
+# No store at all
+# ---------------------------------------------------------------------------
+
+
+async def test_no_store_is_not_reported_as_a_failure(make_settings: SettingsFactory) -> None:
+    """Running without a database is a supported configuration, not a fault.
+
+    A store that is absent and a store that is broken both fail to return an
+    entry, and the caller does the same thing either way — fetch the source. The
+    difference is what the user is told. ``DATABASE_URL`` unset means there is
+    nothing to report, so the diagnostics stay clean; reporting a storage error
+    here would send someone hunting for a fault that does not exist.
+    """
+    service = CacheService(None, make_settings())
+
+    lookup = await service.lookup(_key())
+    write = await service.store(_key(), (make_source("wikipedia", 1),))
+
+    assert lookup.entry is None
+    assert not lookup.hit
+    assert lookup.failure is None
+    assert not write.stored
+    assert write.failure is None
+
+
+async def test_no_store_means_nothing_is_remembered_between_reads(
+    make_settings: SettingsFactory,
+) -> None:
+    """The no-op is a real no-op, not a store that silently drops writes."""
+    service = CacheService(None, make_settings())
+    key = _key()
+
+    await service.store(key, (make_source("wikipedia", 1),))
+
+    assert not (await service.lookup(key)).hit
+
+
+async def test_no_store_has_nothing_to_purge(make_settings: SettingsFactory) -> None:
+    assert await CacheService(None, make_settings()).purge_expired() == 0

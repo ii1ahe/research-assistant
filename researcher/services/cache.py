@@ -15,6 +15,12 @@ a working one until the bill for re-fetching everything arrives.
 Useful caching also depends on getting the key right, which is why
 :class:`~researcher.models.CacheKey` carries the provider and the result limit
 and not just the query — see :meth:`Orchestrator._cache_key`.
+
+There is also a third case, neither a hit nor a fault: the application running
+with no database at all, which is what an unset ``DATABASE_URL`` means. That is
+expressed as a ``None`` store, and each method degrades to exactly the value its
+own failure path already returns — so "no cache configured" needs no special
+case anywhere above this module.
 """
 
 from __future__ import annotations
@@ -87,11 +93,15 @@ class CacheService:
     turn an optimisation into a dependency.
     """
 
-    def __init__(self, cache: SourceCache, settings: Settings) -> None:
+    def __init__(self, cache: SourceCache | None, settings: Settings) -> None:
         """Initialize the service.
 
         Args:
-            cache: The backing store, from ``Storage.cache``.
+            cache: The backing store, from ``Storage.cache``. ``None`` means
+                there is none — the application is running without a database —
+                and every operation becomes the no-op that the corresponding
+                failure would have produced anyway. It is not an error state:
+                ``DATABASE_URL`` is optional by design.
             settings: Supplies ``cache_ttl_seconds``.
         """
         self._cache = cache
@@ -108,6 +118,8 @@ class CacheService:
         Returns:
             A hit, an ordinary miss, or a miss caused by a storage failure.
         """
+        if self._cache is None:
+            return CacheLookup()
         try:
             entry = await self._cache.get(key, now=now)
         except StorageError as exc:
@@ -141,6 +153,8 @@ class CacheService:
         Returns:
             Whether the write succeeded, and why not if it did not.
         """
+        if self._cache is None:
+            return CacheWrite()
         moment = now or utc_now()
         entry = CacheEntry(
             key=key,
@@ -162,6 +176,8 @@ class CacheService:
         Housekeeping rather than part of a request path, so a failure here is
         logged and reported as zero removals instead of propagating.
         """
+        if self._cache is None:
+            return 0
         try:
             return await self._cache.purge_expired(now=now)
         except StorageError as exc:

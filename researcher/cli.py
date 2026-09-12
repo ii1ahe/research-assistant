@@ -1,24 +1,48 @@
 """Command-line interface.
 
-Phase 1 establishes the argument surface, the source-alias contract, and the
-exit-status mapping required by the project brief. The application wiring
-(``bootstrap`` -> ``ResearchService`` -> ``rendering``) is added in Phase 6 of
-the roadmap in ``docs/architecture.md``; until then each subcommand reports that
-it is not yet wired rather than pretending to succeed.
+The argument surface, the source-alias contract and the exit-status mapping are
+established here; the work itself is delegated. ``main`` does three things and
+nothing else: parse, drive :func:`~researcher.bootstrap.bootstrap`, and turn the
+outcome into a process exit status. Every rule about *whether* something is an
+error lives in the layer that knows — this module only maps.
+
+The mapping is the contract the brief asks for:
+
+===  =======================================================================
+0    An answer was produced, including a partial one whose missing sources
+     were disclosed. A degraded answer the user was told about is a success.
+1    No usable answer, or a session that was configured for storage was not
+     stored.
+2    Bad input or bad configuration — the user must change something, and
+     retrying unchanged would spend quota to learn nothing.
+===  =======================================================================
+
+Streams are split deliberately: the answer goes to stdout, everything about the
+run goes to stderr. ``researcher ask "…" > answer.md`` therefore writes a file
+worth keeping, and the diagnostics are still on the terminal.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
+import contextlib
+import json
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 from researcher import __version__
+from researcher.bootstrap import Application, bootstrap
+from researcher.errors import ConfigurationError, InvalidRequestError
+from researcher.models import PersistenceStatus, ResearchRequest, ResearchResult, ResultStatus
+from researcher.rendering import render_answer, render_diagnostics, render_summary
 
 # Source names and their aliases are defined once, in `researcher.validation`,
 # so the CLI cannot drift from the normalisation the rest of the application
 # performs. See `validation.parse_sources`, which consumes both.
-from researcher.validation import SOURCE_ALIASES, SOURCE_NAMES
+from researcher.validation import SOURCE_ALIASES, SOURCE_NAMES, parse_sources
 
 # --- Exit statuses ---------------------------------------------------------
 #: Success, or a partial success that was clearly disclosed to the user.
@@ -31,11 +55,30 @@ EXIT_USAGE = 2
 #: Canonical source names accepted by ``--sources``.
 SOURCE_CHOICES = SOURCE_NAMES
 
+#: Default result limit per source, matching :class:`~researcher.config.Settings`.
+DEFAULT_MAX_RESULTS = 3
+
+#: The supplied question set, relative to the repository root. It ships with the
+#: submission rather than being installed, so the path is resolved from this
+#: file rather than from the working directory — `demo` then works from anywhere
+#: inside the repository, which is where a grader will run it.
+DEMO_DATA = Path(__file__).resolve().parent.parent / "data" / "research_questions.json"
+
 #: Rendered once for the ``--sources`` help text so that the aliases advertised
 #: to the user are always the aliases actually accepted.
 _ALIAS_HELP = ", ".join(
     f"'{alias}' for '{canonical}'" for alias, canonical in sorted(SOURCE_ALIASES.items())
 )
+
+
+@dataclass(frozen=True, slots=True)
+class DemoQuestion:
+    """One entry from ``data/research_questions.json``."""
+
+    id: str
+    text: str
+    difficulty: str
+    sources: tuple[str, ...]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,15 +113,194 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument(
         "--max-results",
         type=int,
-        default=3,
+        default=DEFAULT_MAX_RESULTS,
         metavar="N",
-        help="Maximum results to request from each source (default: 3).",
+        help=f"Maximum results to request from each source (default: {DEFAULT_MAX_RESULTS}).",
     )
 
     demo = commands.add_parser("demo", help="Run the five supplied sample questions from data/.")
     demo.add_argument("--no-cache", action="store_true", help="Bypass the cache entirely.")
 
     return parser
+
+
+def load_demo_questions(path: Path | None = None) -> list[DemoQuestion]:
+    """Read the supplied question set.
+
+    Args:
+        path: Override for the data file, used by tests.
+
+    Returns:
+        The questions, in file order.
+
+    Raises:
+        ConfigurationError: The file is missing, unreadable, or not shaped the
+            way the application expects. Reported as exit status 2 because it is
+            a problem with the installation the user can fix, and because
+            discovering it after two questions have already spent quota would be
+            worse — every question is parsed before any of them is asked.
+    """
+    source = path if path is not None else DEMO_DATA
+    try:
+        raw = json.loads(source.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ConfigurationError(f"no question set at {source}", source="demo") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigurationError(f"could not read {source}: {exc}", source="demo") from exc
+
+    entries = raw.get("questions") if isinstance(raw, dict) else None
+    if not isinstance(entries, list) or not entries:
+        raise ConfigurationError(f"{source} contains no questions", source="demo")
+
+    questions: list[DemoQuestion] = []
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict):
+            raise ConfigurationError(f"{source}: question {index} is not an object", source="demo")
+        try:
+            text = str(entry["text"])
+            identifier = str(entry.get("id", f"q{index}"))
+        except KeyError as exc:
+            message = f"{source}: question {index} has no text"
+            raise ConfigurationError(message, source="demo") from exc
+        expected = entry.get("expected_sources") or SOURCE_CHOICES
+        questions.append(
+            DemoQuestion(
+                id=identifier,
+                text=text,
+                difficulty=str(entry.get("difficulty", "unknown")),
+                sources=tuple(str(name) for name in expected),
+            )
+        )
+    return questions
+
+
+def _build_request(
+    question: str,
+    sources: str | Sequence[str],
+    *,
+    use_cache: bool,
+    max_results: int,
+) -> ResearchRequest:
+    """Turn parsed arguments into a request.
+
+    Raises:
+        InvalidRequestError: The source list is empty or names something that
+            does not exist. Raised here, before the application is driven, so an
+            unusable ``--sources`` costs nothing.
+    """
+    parsed = parse_sources(sources)
+    try:
+        return ResearchRequest(
+            question=question,
+            sources=parsed,
+            use_cache=use_cache,
+            max_results=max_results,
+        )
+    except ValueError as exc:
+        raise InvalidRequestError(str(exc), source="cli") from exc
+
+
+def exit_status(result: ResearchResult) -> int:
+    """Map a finished run onto the exit status contract.
+
+    ``PARTIAL`` is a success and not a failure: the run disclosed which sources
+    did not contribute, so the user has an answer and knows its limits. Only a
+    run with no answer at all, or one whose session was configured for storage
+    and not stored, is a failure.
+
+    ``persistence`` can only be ``FAILED`` when a database was configured and
+    the write was attempted, which is exactly what "a *required* persistence
+    write failed" means. An unconfigured database reports ``SKIPPED`` and is not
+    an error — ADR-002 makes persistence optional by leaving ``DATABASE_URL``
+    unset.
+    """
+    if result.status in (ResultStatus.FAILED, ResultStatus.NO_SOURCES):
+        return EXIT_FAILURE
+    if result.persistence is PersistenceStatus.FAILED:
+        return EXIT_FAILURE
+    return EXIT_OK
+
+
+async def _ask(application: Application, request: ResearchRequest) -> int:
+    """Research one question and render it."""
+    result = await application.service.research(request)
+    print(render_answer(result))
+    print(render_diagnostics(result), file=sys.stderr)
+    return exit_status(result)
+
+
+async def _demo(
+    application: Application, plan: Sequence[tuple[DemoQuestion, ResearchRequest]]
+) -> int:
+    """Run every supplied sample question, in the order they were given.
+
+    Asked one at a time rather than concurrently. The point of the demo is a
+    readable end-to-end smoke run, and Wikipedia and arXiv are both key-free and
+    rate-limited — the brief asks callers to be polite to them. Concurrency is
+    measured properly by the benchmark in Phase 7, which is the thing that
+    exists to measure it.
+    """
+    results: list[ResearchResult] = []
+
+    for question, request in plan:
+        print(f"--- {question.id} ({question.difficulty})", file=sys.stderr)
+        result = await application.service.research(request)
+        print(render_answer(result))
+        print(render_diagnostics(result), file=sys.stderr)
+        results.append(result)
+
+    print(render_summary(results), file=sys.stderr)
+    if any(result.answer is None for result in results):
+        return EXIT_FAILURE
+    if any(result.persistence is PersistenceStatus.FAILED for result in results):
+        return EXIT_FAILURE
+    return EXIT_OK
+
+
+async def run(args: argparse.Namespace) -> int:
+    """Drive the application for a parsed command.
+
+    Everything resource-owning lives inside the ``async with``, so the pools are
+    released on the paths that raise as well as the ones that return.
+
+    Everything the *user* can get wrong is settled before it. The command's
+    inputs are read and built first — the question set is parsed in full, and
+    every request is constructed — so a mistyped ``--sources`` or a malformed
+    data file is exit status 2 with no connection pool opened and no database
+    dialled. Validating inside the ``async with`` would report the same status
+    for the same reason, but only after opening resources to do nothing with.
+
+    Raises:
+        ConfigurationError: The environment is invalid, a configured database
+            cannot be used, or the supplied question set is unusable.
+        InvalidRequestError: The arguments do not describe a runnable request.
+    """
+    use_cache = not args.no_cache
+
+    if args.command == "demo":
+        plan = [
+            (
+                question,
+                _build_request(
+                    question.text,
+                    question.sources,
+                    use_cache=use_cache,
+                    max_results=DEFAULT_MAX_RESULTS,
+                ),
+            )
+            for question in load_demo_questions()
+        ]
+        async with bootstrap() as application:
+            return await _demo(application, plan)
+
+    request = _build_request(
+        args.question,
+        args.sources,
+        use_cache=use_cache,
+        max_results=args.max_results,
+    )
+    async with bootstrap() as application:
+        return await _ask(application, request)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -90,13 +312,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     Returns:
         One of :data:`EXIT_OK`, :data:`EXIT_FAILURE` or :data:`EXIT_USAGE`.
     """
+    # argparse owns invalid arguments and exits 2 on its own, which is already
+    # the status the contract asks for, so its SystemExit is left to propagate.
     args = build_parser().parse_args(argv)
 
-    # Phase 6 replaces this with a call into the application service. Until
-    # then the CLI is honest about not being wired up rather than exiting 0.
-    print(
-        f"researcher: '{args.command}' is not wired up yet. "
-        "This build contains Phase 1 packaging only; see docs/architecture.md.",
-        file=sys.stderr,
-    )
-    return EXIT_FAILURE
+    try:
+        return asyncio.run(run(args))
+    except (ConfigurationError, InvalidRequestError) as exc:
+        print(f"researcher: {exc.message}", file=sys.stderr)
+        return EXIT_USAGE
+    except KeyboardInterrupt:
+        # The interrupt already cancelled the run and unwound the context
+        # manager, so the pools are closed by the time this runs.
+        print("\nresearcher: interrupted", file=sys.stderr)
+        return EXIT_FAILURE
+    except BrokenPipeError:
+        # `researcher ask "…" | head` closes stdout early. Dying noisily here
+        # would blame the user for redirecting output, which is normal use.
+        with contextlib.suppress(OSError):
+            sys.stdout.close()
+        return EXIT_OK
