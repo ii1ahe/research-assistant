@@ -65,13 +65,25 @@ def _answer(question: str, sources: list[Source]) -> AnswerWithCitations:
 # ---------------------------------------------------------------------------
 
 
+def patch_wikipedia(monkeypatch: pytest.MonkeyPatch, fake: Callable[..., object]) -> None:
+    """Patch both Wikipedia fetchers with a single fake.
+
+    ``AIService`` picks between the supplied ``ai`` fetcher and ours according
+    to ``WIKIPEDIA_SEARCH``. A test about retries, deadlines or client sharing
+    should not have to know which one that is, so both names get the fake. Tests
+    that *are* about the choice patch the two separately.
+    """
+    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", fake)
+    monkeypatch.setattr(ai_service_module, "fetch_wikipedia_fulltext", fake)
+
+
 async def test_a_successful_fetch_reports_success(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fake(query: str, **kwargs: object) -> list[Source]:
         return [_source(1), _source(2)]
 
-    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", fake)
+    patch_wikipedia(monkeypatch, fake)
 
     outcome = await AIService(make_settings(), retrieval_policy=FAST).fetch_source(
         SourceName.WIKIPEDIA, "a question"
@@ -213,7 +225,7 @@ async def test_a_source_is_retried_and_can_recover(
             raise ProviderError("Wikipedia search failed: read timeout")
         return [_source(1)]
 
-    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", fake)
+    patch_wikipedia(monkeypatch, fake)
 
     outcome = await AIService(make_settings(), retrieval_policy=FAST).fetch_source(
         SourceName.WIKIPEDIA, "a question"
@@ -258,10 +270,22 @@ async def test_the_deadline_bounds_the_source_including_its_retries(
     assert elapsed < 0.3, f"the deadline did not bound the whole source: {elapsed:.2f}s"
 
 
+@pytest.mark.parametrize(
+    ("setting", "expected"),
+    [("fulltext", "fulltext"), ("opensearch", "supplied")],
+)
 async def test_each_source_kind_reaches_its_own_fetcher(
-    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+    make_settings: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    setting: str,
+    expected: str,
 ) -> None:
-    """Dispatch is by canonical name, and the three must not be crossed."""
+    """Dispatch is by canonical name, and the sources must not be crossed.
+
+    Wikipedia has two possible fetchers, so both settings are asserted rather
+    than whichever one happens to be the default — the choice is a setting, and
+    a setting that silently stopped being honoured would otherwise go unnoticed.
+    """
     seen: list[str] = []
 
     def make(name: str) -> Callable[..., object]:
@@ -271,15 +295,27 @@ async def test_each_source_kind_reaches_its_own_fetcher(
 
         return fake
 
-    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", make("wikipedia"))
+    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", make("supplied"))
+    monkeypatch.setattr(ai_service_module, "fetch_wikipedia_fulltext", make("fulltext"))
     monkeypatch.setattr(ai_service_module, "fetch_arxiv", make("arxiv"))
     monkeypatch.setattr(ai_service_module, "fetch_web", make("web"))
 
-    service = AIService(make_settings(), retrieval_policy=FAST)
+    service = AIService(make_settings(wikipedia_search=setting), retrieval_policy=FAST)
     for source in (SourceName.WIKIPEDIA, SourceName.ARXIV, SourceName.WEB):
         await service.fetch_source(source, "a question")
 
-    assert seen == ["wikipedia", "arxiv", "web"]
+    assert seen == [expected, "arxiv", "web"]
+
+
+async def test_wikipedia_uses_the_fulltext_fetcher_unless_told_otherwise(
+    make_settings: SettingsFactory,
+) -> None:
+    """The default is the one that can answer a question, not the supplied one.
+
+    Asserted against the setting rather than by calling the fetcher, so this
+    stays true offline and does not depend on what Wikipedia currently returns.
+    """
+    assert make_settings().wikipedia_search == "fulltext"
 
 
 async def test_the_fetchers_share_one_http_client(
@@ -292,7 +328,7 @@ async def test_the_fetchers_share_one_http_client(
         clients.append(kwargs.get("client"))
         return [_source(1)]
 
-    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", fake)
+    patch_wikipedia(monkeypatch, fake)
     monkeypatch.setattr(ai_service_module, "fetch_arxiv", fake)
 
     service = AIService(make_settings(), retrieval_policy=FAST)
@@ -313,7 +349,7 @@ async def test_an_injected_client_is_used(
         seen.append(kwargs.get("client"))
         return [_source(1)]
 
-    monkeypatch.setattr(ai_service_module, "fetch_wikipedia", fake)
+    patch_wikipedia(monkeypatch, fake)
 
     injected = httpx.AsyncClient()
     service = AIService(make_settings(), client=injected, retrieval_policy=FAST)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import timedelta
@@ -279,6 +280,44 @@ class BrokenCache:
     async def purge_expired(self, *, now: Any = None) -> int:
         """Fail."""
         raise StorageError("cache unavailable", source="storage")
+
+
+#: Hosts a test may reach: the local machine. The PostgreSQL integration tests
+#: in ``test_storage.py`` talk to a real server on loopback, and loopback still
+#: works with the cable pulled, so allowing it keeps the offline guarantee
+#: meaningful instead of merely strict.
+_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", ""})
+
+
+@pytest.fixture(autouse=True)
+def no_internet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any test that tries to reach off this machine.
+
+    The suite is documented as passing with the network cable pulled, and that
+    was true only by discipline: a test that patched the wrong seam, or a
+    default that changed under it, would quietly reach the live internet and
+    pass anyway. That is the worst kind of test — it is slow, it is flaky, and
+    it reports success for behaviour nobody mocked. This happened once, when the
+    Wikipedia fetcher gained a second implementation: five tests kept passing by
+    calling Wikipedia for real, and the only visible symptom was a run that took
+    two seconds longer.
+
+    Patching ``connect`` rather than ``getaddrinfo`` so the failure is raised at
+    the line that needs fixing. Mocked transports never reach it — ``respx``
+    replaces the transport, so the HTTP layer needs no patch of its own.
+    """
+    real_connect = socket.socket.connect
+
+    def guard(self: socket.socket, address: object) -> None:
+        host = address[0] if isinstance(address, tuple) and address else address
+        if isinstance(address, tuple) and host in _LOOPBACK:
+            return real_connect(self, address)
+        raise RuntimeError(
+            f"the test suite tried to reach the network at {address!r}. Mock it "
+            "with respx or patch the fetcher instead — the suite must run offline."
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", guard)
 
 
 @pytest.fixture
