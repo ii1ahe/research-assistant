@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import pytest
 
 from ai.providers.base import LLMProvider
+from ai.schemas import AnswerWithCitations, Citation, Source
 from ai.sources import WebSearchProvider
-from ai.schemas import Source
 from researcher.config import Settings
+from researcher.errors import StorageError
+from researcher.models import (
+    ProviderIdentity,
+    SourceName,
+    SourceOutcome,
+    SourceStatus,
+)
 
 
 class FakeLLM(LLMProvider):
@@ -87,6 +94,118 @@ def make_settings() -> Callable[..., Settings]:
         return Settings(_env_file=None, **(base | overrides))  # type: ignore[arg-type]
 
     return build
+
+
+def make_source(name: str, n: int = 1) -> Source:
+    """Build a distinct source for a given origin."""
+    return Source(
+        title=f"{name} result {n}",
+        url=f"https://example.com/{name}/{n}",
+        snippet=f"a snippet from {name}",
+        origin=name,
+    )
+
+
+class StubAIService:
+    """A stand-in for :class:`~researcher.services.ai_service.AIService`.
+
+    ``AIService`` is a concrete class rather than a protocol, so this substitutes
+    by duck typing at the one seam the orchestrator and the application service
+    use: ``fetch_source`` for retrieval, ``synthesize`` for the answer, and
+    ``provider_identity`` for the session snapshot. The real boundary is covered
+    by ``test_ai_service.py``; what is being tested here is the *sequencing*,
+    and a stub makes that visible instead of hiding it behind real retry logic.
+
+    Retrieval answers from ``outcomes`` when the source is present there, so a
+    test states only the sources it cares about; anything else succeeds with one
+    source of its own, which keeps unrelated cases out of the way.
+    """
+
+    def __init__(
+        self,
+        *,
+        outcomes: Mapping[SourceName, SourceOutcome] | None = None,
+        answer: AnswerWithCitations | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self._outcomes = dict(outcomes or {})
+        self._answer = answer
+        self._error = error
+        self.fetched: list[tuple[SourceName, str, int | None]] = []
+        self.synthesized: list[tuple[str, tuple[Source, ...]]] = []
+
+    async def fetch_source(
+        self, source: SourceName, query: str, *, max_results: int | None = None
+    ) -> SourceOutcome:
+        """Return the scripted outcome, or a one-source success."""
+        self.fetched.append((source, query, max_results))
+        if source in self._outcomes:
+            return self._outcomes[source]
+        return SourceOutcome(
+            source=source,
+            status=SourceStatus.SUCCESS,
+            sources=(make_source(source.value),),
+        )
+
+    async def synthesize(self, question: str, sources: Sequence[Source]) -> AnswerWithCitations:
+        """Return the scripted answer, or raise the scripted error."""
+        materialised = tuple(sources)
+        self.synthesized.append((question, materialised))
+        if self._error is not None:
+            raise self._error
+        if self._answer is not None:
+            return self._answer
+        # Cite every source, which is what the real synthesizer does when the
+        # answer uses them all.
+        return AnswerWithCitations(
+            question=question,
+            answer=" ".join(f"Claim [{index}]." for index in range(1, len(materialised) + 1)),
+            citations=[
+                Citation(index=index, source=source)
+                for index, source in enumerate(materialised, start=1)
+            ],
+        )
+
+    @property
+    def provider_identity(self) -> ProviderIdentity:
+        """The stack this stub claims to be."""
+        return ProviderIdentity(
+            llm_provider="gemini",
+            llm_model="gemini-3.8-flash",
+            web_search_provider="tavily",
+        )
+
+
+class BrokenCache:
+    """A :class:`~researcher.storage.interfaces.SourceCache` that always fails.
+
+    Used to prove the CACHE cannot break a run. Every method raises the same
+    :class:`~researcher.errors.StorageError` the PostgreSQL implementation
+    would raise, so the degradation path is exercised without a database.
+    """
+
+    def __init__(self) -> None:
+        self.reads = 0
+        self.writes = 0
+
+    async def get(self, key: Any, *, now: Any = None) -> Any:
+        """Fail."""
+        self.reads += 1
+        raise StorageError("cache unavailable", source="storage")
+
+    async def put(self, entry: Any) -> None:
+        """Fail."""
+        self.writes += 1
+        raise StorageError("cache unavailable", source="storage")
+
+    async def purge_expired(self, *, now: Any = None) -> int:
+        """Fail."""
+        raise StorageError("cache unavailable", source="storage")
+
+
+@pytest.fixture
+def stub_ai() -> StubAIService:
+    return StubAIService()
 
 
 @pytest.fixture
