@@ -57,14 +57,28 @@ WebSearchProviderName = Literal["tavily", "serper", "duckduckgo"]
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
-#: Per-provider default model ids, mirroring the fallbacks the supplied provider
-#: classes apply when ``LLM_MODEL`` is unset. Kept in step deliberately: this is
-#: what makes :attr:`Settings.effective_llm_model` describe the model that will
-#: actually answer.
+#: Per-provider default model ids.
+#:
+#: For ``anthropic`` and ``openai`` these mirror the fallbacks the supplied
+#: provider classes apply when ``LLM_MODEL`` is unset, so
+#: :attr:`Settings.effective_llm_model` describes the model that will actually
+#: answer.
+#:
+#: ``gemini`` deliberately does *not* mirror the supplied code. That class still
+#: falls back to ``gemini-2.0-flash``, which the API now rejects with
+#: ``404 NOT_FOUND`` — the model has been retired. Mirroring a retired id
+#: faithfully would make the application fail on its first live call, so this
+#: diverges on purpose, and the divergence is recorded rather than silent.
+#: ``ai/`` is supplied code and not ours to correct.
+#:
+#: Verified against the live API: ``gemini-2.0-flash`` -> 404, and
+#: ``gemini-2.5-flash`` -> 404 ("no longer available to new users"), so 2.x is
+#: not a usable target at all. ``gemini-3.8-flash`` was confirmed working
+#: end-to-end through ``ai.synthesize``.
 _DEFAULT_LLM_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-4o-mini",
-    "gemini": "gemini-2.0-flash",
+    "gemini": "gemini-3.8-flash",
 }
 
 #: Recognisable model-name prefixes, used only to catch the shared-``LLM_MODEL``

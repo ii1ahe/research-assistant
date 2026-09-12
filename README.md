@@ -101,6 +101,14 @@ whenever `LLM_PROVIDER` does. Pairing `LLM_PROVIDER=openai` with a `claude-…`
 model id is rejected at startup with exit status 2 instead of failing later
 with an opaque provider error.
 
+**If you select `gemini`**, set `LLM_MODEL` explicitly. The supplied
+`ai/providers/google.py` falls back to `gemini-2.0-flash`, which the API now
+rejects with `404 NOT_FOUND` — the model has been retired, and `gemini-2.5-flash`
+is refused as well. `researcher/config.py` therefore ships a working gemini
+default (`gemini-3.8-flash`) rather than mirroring `ai/`'s retired literal; that
+deliberate divergence is documented at `_DEFAULT_LLM_MODELS`. This project runs
+on `gemini` with `gemini-3.8-flash`.
+
 `DATABASE_URL` controls both storage concerns (ADR-002): the source cache and
 the session store both live in PostgreSQL. With it unset, nothing is cached and
 sessions are not stored, but the tool still runs end-to-end and reports
@@ -224,6 +232,19 @@ _[Consolidated at Phase 7. Known so far:]_
   sources. It does **not** prove that any claim is factually supported.
 - The offline demo returns canned sources and templated answers. Its success
   establishes wiring, not retrieval quality.
+- The supplied `ai/providers/google.py` hardcodes a **retired** fallback model
+  (`gemini-2.0-flash`, now `404`). We cannot correct it in place — `ai/` is
+  supplied code — so the working default lives in our config instead. Any
+  caller that reaches `GeminiLLM()` with `LLM_MODEL` unset still gets the
+  broken id, which is a live hazard for anything bypassing `effective_llm_model`.
+- Gemini's reasoning tokens count against the output budget, so a small
+  `max_tokens` produces an **empty or truncated** response rather than an
+  error. Measured: `max_tokens=64` returned `""` from `gemini-3.7-flash` and a
+  truncated `{"answer":"` from `gemini-3.8-flash`; `1024` returned valid JSON
+  from both. The synthesizer is safe because it relies on the provider default,
+  but a retry wrapper that passes `max_tokens` explicitly could reintroduce
+  this silently — the failure looks like a bad model response, not a config
+  error.
 
 Security sits in this section rather than its own: the report template has no
 security section, and the honest content there is a list of gaps and what

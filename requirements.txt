@@ -17,10 +17,13 @@ tenacity==9.1.4
 asyncpg==0.31.0
 
 # --- LLM provider (synthesis) ----------------------------------------------
-# Only the provider selected by LLM_PROVIDER is needed at runtime.
+# Only the provider selected by LLM_PROVIDER is needed at runtime. Both pins
+# below are installed by default: `anthropic` because it is the fallback
+# provider in ai/providers/factory.py, and `google-genai` because it is the
+# provider this project is configured for. Comment either out to slim the image.
 anthropic==1.5.0
+google-genai==2.14.0
 # openai==2.6.1
-# google-genai==2.14.0
 
 # --- Web search provider ---------------------------------------------------
 # Tavily and Serper are queried over plain httpx — no extra package required.
