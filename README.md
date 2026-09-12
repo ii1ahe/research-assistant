@@ -161,11 +161,18 @@ python -m pytest --cov=researcher --cov-report=term-missing
 ├── researcher/            # our application package
 │   ├── __init__.py
 │   ├── __main__.py        # `python -m researcher`
-│   └── cli.py             # argument surface + exit statuses
+│   ├── cli.py             # argument surface + exit statuses
+│   ├── config.py          # validated settings, provider resolution
+│   ├── errors.py          # failure categories + retryability
+│   ├── models.py          # typed data contracts
+│   ├── validation.py      # input normalisation + output checks
+│   └── storage/
+│       └── interfaces.py  # cache + session protocols (ADR-004)
 ├── tests/                 # provided smoke tests + our suite
 ├── data/                  # 5 sample research questions
 ├── docs/
-│   └── architecture.md    # ADRs, module contracts, phase roadmap
+│   ├── architecture.md    # ADRs, module contracts, phase roadmap
+│   └── security.md        # security posture, gaps, hardening notes
 ├── demo_ai.py             # PROVIDED — AI-layer demo
 ├── pyproject.toml         # packaging + ruff/mypy config
 ├── requirements.txt       # pinned runtime
@@ -217,6 +224,12 @@ _[Consolidated at Phase 7. Known so far:]_
   sources. It does **not** prove that any claim is factually supported.
 - The offline demo returns canned sources and templated answers. Its success
   establishes wiring, not retrieval quality.
+
+Security sits in this section rather than its own: the report template has no
+security section, and the honest content there is a list of gaps and what
+closing each one would take. That list, plus the checks that came back clean, is
+in [`docs/security.md`](docs/security.md) — the headline being that the local
+PostgreSQL cluster still uses `initdb`'s default `trust` authentication.
 
 ## Tools & acknowledgements
 
