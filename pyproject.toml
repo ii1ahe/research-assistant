@@ -122,3 +122,13 @@ show_error_codes = true
 [[tool.mypy.overrides]]
 module = ["ai", "ai.*"]
 ignore_errors = true
+
+# `asyncpg` ships no `py.typed` marker and no stubs, so under `strict` every
+# import of it is an `import-untyped` error. `ignore_missing_imports` is the
+# narrow fix: it makes the module importable as `Any` while leaving the rest of
+# the strict settings in force for our own code. `ignore_errors` would be wrong
+# here — it would also silence real mistakes in `researcher/storage/`, which is
+# the code this project is actually graded on.
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
