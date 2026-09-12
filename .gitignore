@@ -1,0 +1,52 @@
+# --- Secrets ----------------------------------------------------------------
+# A real .env must never be committed (COMMON_PITFALLS.md #3 and #9).
+.env
+.env.*
+!.env.example
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+develop-eggs/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+ENV/
+env/
+
+# --- Tooling caches ---------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# --- Local runtime data -----------------------------------------------------
+# Local caches and databases are regenerable and machine-specific.
+.cache/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# --- Editors / OS -----------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+*~
+
+# NOTE: deliberately NOT ignored, because they are graded submission artefacts:
+#   artefacts/    demo run outputs, timings and failure evidence
+#   report/       report.tex and the compiled report.pdf
+#   slides/       deck source and compiled PDF
+#   data/         sample research questions

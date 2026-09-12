@@ -1,0 +1,39 @@
+# Controls the build context sent to the Docker daemon.
+# Keep this small: a large context makes every build slow and can leak secrets.
+
+# --- Secrets -----------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Version control and virtualenv -----------------------------------------
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+
+# --- Tooling caches ---------------------------------------------------------
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# --- Not needed to build or run the image -----------------------------------
+# README.md and pyproject.toml are deliberately kept: the package metadata
+# declares `readme = "README.md"`, so excluding it would break `pip install .`
+# inside the image (COMMON_PITFALLS.md #6).
+tests
+docs
+report
+slides
+templates
+artefacts
+migrations
+Dockerfile
+.dockerignore
+compose.yaml
+requirements-dev.txt

@@ -1,0 +1,107 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "researcher"
+version = "0.1.0"
+description = "Async research assistant: concurrent multi-source retrieval with cited LLM synthesis."
+readme = "README.md"
+requires-python = ">=3.13"
+
+# Compatible ranges for packaging. The pinned, tested environment that CI and
+# Docker actually use lives in requirements.txt (see docs/architecture.md).
+dependencies = [
+    "httpx>=0.28,<0.29",
+    "numpy>=2.5,<3",
+    "pydantic>=2.13,<3",
+    "pydantic-settings>=2.15,<3",
+    "tenacity>=9.1,<10",
+    "asyncpg>=0.31,<0.32",
+]
+
+[project.optional-dependencies]
+# Exactly one LLM provider is needed at runtime; select it via LLM_PROVIDER.
+anthropic = ["anthropic>=1.5,<2"]
+openai = ["openai>=1.50"]
+gemini = ["google-genai>=0.3"]
+# Only needed when WEB_SEARCH_PROVIDER=duckduckgo. Tavily and Serper are
+# reached over plain httpx and need no extra package.
+duckduckgo = ["duckduckgo-search>=6.0"]
+
+[project.scripts]
+researcher = "researcher.cli:main"
+
+# --- Packaging -------------------------------------------------------------
+# Flat layout: both the supplied `ai` package and our `researcher` package sit
+# at the project root. This is deliberate — see docs/architecture.md, ADR-001.
+# Keeping `ai` at the root means the provided smoke tests and the standard
+# Dockerfile template work with no path shims.
+[tool.setuptools.packages.find]
+include = ["researcher*", "ai*"]
+exclude = [
+    "tests*",
+    "docs*",
+    "data*",
+    "scripts*",
+    "migrations*",
+    "artefacts*",
+    "report*",
+    "slides*",
+    "templates*",
+    "build*",
+    "dist*",
+]
+namespaces = false
+
+# --- Ruff ------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+src = ["researcher", "tests"]
+
+# Files supplied by the course are immutable inputs and are deliberately not
+# linted: we must not "fix" them (TOPIC.md — the `ai` package and the provided
+# smoke tests are a contract). Everything we author is still checked.
+extend-exclude = [
+    "ai",                      # supplied package, must remain byte-identical
+    "demo_ai.py",              # supplied demonstration harness
+    "tests/conftest.py",       # supplied fixtures
+    "tests/test_ai_smoke.py",  # supplied contract tests
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # import sorting
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "A",   # shadowed builtins
+    "C4",  # comprehensions
+    "SIM", # simplify
+    "T20", # flake8-print — see COMMON_PITFALLS.md #4
+    "PT",  # pytest style
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# print() is permitted for CLI/user-facing output only, never for diagnostics.
+# Everything else must go through the `logging` module.
+"researcher/cli.py" = ["T20"]
+"researcher/rendering.py" = ["T20"]
+"scripts/*" = ["T20"]
+
+# --- mypy ------------------------------------------------------------------
+# Type checking covers the student-owned application package only. The supplied
+# `ai` package is an immutable external dependency and is deliberately excluded.
+[tool.mypy]
+python_version = "3.14"
+files = ["researcher"]
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+pretty = true
+show_error_codes = true
