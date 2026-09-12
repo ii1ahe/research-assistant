@@ -87,6 +87,12 @@ select = [
     "RUF",
 ]
 
+[tool.ruff.lint.isort]
+# `ai` lives at the repository root and ships with the submission, so imports
+# of it group with our own code rather than with installed dependencies. The
+# `src` list above deliberately omits the root, so this must be stated here.
+known-first-party = ["ai", "researcher"]
+
 [tool.ruff.lint.per-file-ignores]
 # print() is permitted for CLI/user-facing output only, never for diagnostics.
 # Everything else must go through the `logging` module.
@@ -105,3 +111,14 @@ warn_unreachable = true
 warn_unused_ignores = true
 pretty = true
 show_error_codes = true
+
+# `files` above sets the entry points, but it does not stop mypy from following
+# imports out of them. The moment our code imports `ai` — which it must — mypy
+# type-checks the supplied package and reports ~48 errors there. `ignore_errors`
+# silences reporting for those modules while still reading their real
+# signatures, so our side of every call into `ai` remains fully checked. The
+# package itself must stay byte-identical (TOPIC.md), so these are not ours to
+# fix.
+[[tool.mypy.overrides]]
+module = ["ai", "ai.*"]
+ignore_errors = true
