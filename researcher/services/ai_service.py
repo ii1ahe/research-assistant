@@ -424,7 +424,7 @@ class AIService:
                 raise _translate(exc, source="synthesis") from exc
 
         try:
-            async with deadline(self._settings.per_source_timeout_seconds, source="synthesis"):
+            async with deadline(self._settings.synthesis_timeout_seconds, source="synthesis"):
                 answer = await execute(
                     attempt, policy=self._synthesis_policy, description="synthesis"
                 )

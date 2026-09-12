@@ -590,7 +590,39 @@ async def test_a_synthesis_timeout_is_abandoned_rather_than_repeated(
     monkeypatch.setattr("ai.synthesizer.synthesize", fake)
 
     service = AIService(
-        make_settings(per_source_timeout_seconds=0.05),
+        make_settings(synthesis_timeout_seconds=0.05),
+        synthesis_policy=RetryPolicy(max_attempts=3, initial_backoff=0.0, max_backoff=0.0),
+    )
+    with pytest.raises(UpstreamError, match="deadline"):
+        await service.synthesize("a question", [_source(1)])
+
+    assert calls == 1
+
+
+async def test_synthesis_is_governed_by_its_own_deadline_not_the_fetch_one(
+    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two budgets are separate settings, and this is the proof.
+
+    Until Phase 7 they were one value, so this test is the regression guard for
+    the defect that separation fixed: a fetch budget tight enough to abandon a
+    dead host quickly also killed synthesis, which legitimately takes far
+    longer. A generous fetch deadline here and a tight synthesis one must still
+    time synthesis out — if the two were joined again, a 30-second fetch budget
+    would carry synthesis through and the call would hang instead of raising.
+    """
+    calls = 0
+
+    def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
+        nonlocal calls
+        calls += 1
+        time.sleep(5)
+        return _answer(question, sources)
+
+    monkeypatch.setattr("ai.synthesizer.synthesize", fake)
+
+    service = AIService(
+        make_settings(per_source_timeout_seconds=30.0, synthesis_timeout_seconds=0.05),
         synthesis_policy=RetryPolicy(max_attempts=3, initial_backoff=0.0, max_backoff=0.0),
     )
     with pytest.raises(UpstreamError, match="deadline"):
