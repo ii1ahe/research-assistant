@@ -15,6 +15,11 @@ from collections.abc import Sequence
 
 from researcher import __version__
 
+# Source names and their aliases are defined once, in `researcher.validation`,
+# so the CLI cannot drift from the normalisation the rest of the application
+# performs. See `validation.parse_sources`, which consumes both.
+from researcher.validation import SOURCE_ALIASES, SOURCE_NAMES
+
 # --- Exit statuses ---------------------------------------------------------
 #: Success, or a partial success that was clearly disclosed to the user.
 EXIT_OK = 0
@@ -24,11 +29,13 @@ EXIT_FAILURE = 1
 EXIT_USAGE = 2
 
 #: Canonical source names accepted by ``--sources``.
-SOURCE_CHOICES = ("wikipedia", "arxiv", "web")
+SOURCE_CHOICES = SOURCE_NAMES
 
-#: Accepted aliases, normalised to their canonical name. Normalisation is
-#: implemented in Phase 2 (``researcher.validation``).
-SOURCE_ALIASES = {"wiki": "wikipedia"}
+#: Rendered once for the ``--sources`` help text so that the aliases advertised
+#: to the user are always the aliases actually accepted.
+_ALIAS_HELP = ", ".join(
+    f"'{alias}' for '{canonical}'" for alias, canonical in sorted(SOURCE_ALIASES.items())
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -51,8 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=",".join(SOURCE_CHOICES),
         metavar="LIST",
         help=(
-            "Comma-separated subset of {{{}}}; 'wiki' is accepted as an alias "
-            "for 'wikipedia' (default: all).".format(",".join(SOURCE_CHOICES))
+            f"Comma-separated subset of {{{','.join(SOURCE_CHOICES)}}}; "
+            f"aliases: {_ALIAS_HELP} (default: all)."
         ),
     )
     ask.add_argument(

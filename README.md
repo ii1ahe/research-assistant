@@ -75,19 +75,36 @@ against a live provider. Everything else has a working default.
 
 | Variable | Required? | Default | What it controls |
 |---|---|---|---|
-| `LLM_PROVIDER` | yes | `anthropic` | `anthropic` \| `openai` \| `gemini` |
-| `LLM_MODEL` | yes | `claude-sonnet-4-6` | Model id passed to the provider |
+| `LLM_PROVIDER` | yes | `anthropic` | `anthropic` \| `openai` \| `gemini` (`google` accepted) |
+| `LLM_MODEL` | no | provider-specific | Model id; defaults per provider, and must suit `LLM_PROVIDER` |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` | one of, yes | — | Credential for the chosen provider |
 | `WEB_SEARCH_PROVIDER` | no | `tavily` | `tavily` \| `serper` \| `duckduckgo` |
 | `TAVILY_API_KEY` / `SERPER_API_KEY` | for those providers | — | Web-search credential (DuckDuckGo needs none) |
-| `LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `CACHE_TTL_SECONDS` | no | `86400` | How long a cached source result stays fresh |
 | `PER_SOURCE_TIMEOUT_SECONDS` | no | `10` | Per-source deadline during retrieval |
-| `MAX_SOURCES_PER_QUERY` | no | `3` | Results requested per source |
+| `MAX_RESULTS_PER_SOURCE` | no | `3` | Results requested from each source |
 | `MAX_PARALLEL_SOURCES` | no | `3` | Semaphore bound on concurrent source tasks |
-| `DATABASE_URL` | no | `postgresql://researcher:...@localhost:5432/researcher` | PostgreSQL DSN _(added in Phase 2)_ |
+| `MAX_QUESTION_LENGTH` | no | `500` | Longest accepted question, in characters |
+| `DATABASE_URL` | no | — (unset) | PostgreSQL DSN for the cache and session store |
+| `PERSIST_SESSIONS` | no | `true` | Set `false` to run without touching the database |
 
 The full list lives in `.env.example`. **Never commit a real `.env`.**
+
+Leave a value blank to mean "not set" — do not put a comment after a blank
+value: `KEY=   # note` is parsed as `KEY` containing the text of the note,
+which the application then treats as a real credential. Comments belong on
+their own line.
+
+`LLM_MODEL` is a single variable shared by every provider, so it has to change
+whenever `LLM_PROVIDER` does. Pairing `LLM_PROVIDER=openai` with a `claude-…`
+model id is rejected at startup with exit status 2 instead of failing later
+with an opaque provider error.
+
+`DATABASE_URL` controls both storage concerns (ADR-002): the source cache and
+the session store both live in PostgreSQL. With it unset, nothing is cached and
+sessions are not stored, but the tool still runs end-to-end and reports
+persistence as `skipped` rather than as a failure.
 
 ## How to run the demo
 
