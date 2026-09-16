@@ -1,0 +1,401 @@
+% =====================================================================
+% AI Academy -- National AI Center
+% Software Engineering Final Project -- Defense Deck
+%
+% Topic 4 -- Async Research Assistant
+% Produced from templates/SLIDES_TEMPLATE.tex.
+%
+% Compile with pdfLaTeX (two passes, for \inserttotalframenumber):
+%   pdflatex slides.tex && pdflatex slides.tex
+% =====================================================================
+
+\PassOptionsToPackage{dvipsnames}{xcolor}
+\documentclass[aspectratio=169,11pt]{beamer}
+
+% ===== CONFIGURATION =================================================
+% One thing is still unfilled: \teamname and \memberone. Everything else
+% is final. The footline and the title slide adapt if \teamname is blank.
+\newcommand{\teamname}{}
+\newcommand{\topicchoice}{Topic 4 --- Async Research Assistant}
+\newcommand{\memberone}{\ph{name} (@ii1ahe)}
+\newcommand{\repolink}{github.com/ii1ahe/research-assistant}
+\newcommand{\defensedate}{\today}
+
+\newcommand{\coursecode}{AI-ENG-110}
+\newcommand{\coursename}{Software Engineering}
+\newcommand{\institution}{AI Academy, National AI Center}
+\newcommand{\semester}{Spring 2026}
+
+% ===== PACKAGES ======================================================
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{xcolor}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds}
+
+% ===== EARLY MACROS ==================================================
+\definecolor{accent2}{HTML}{8B0000}
+\newcommand{\TODO}[1]{\textcolor{accent2}{\textbf{[TODO: #1]}}}
+\definecolor{ph}{HTML}{6B7280}
+\newcommand{\ph}[1]{\textcolor{ph}{\textit{#1}}}
+
+% ===== BEAMER THEME (custom, no flashy decorations) =================
+\usetheme{default}
+\usefonttheme{professionalfonts}
+\setbeamertemplate{navigation symbols}{}
+
+\definecolor{accent}{HTML}{0B3D91}
+\definecolor{soft}{HTML}{F2F4F8}
+\definecolor{ok}{HTML}{166534}
+
+\setbeamercolor{title}{fg=accent}
+\setbeamercolor{frametitle}{fg=accent}
+\setbeamercolor{section in head/foot}{bg=accent,fg=white}
+\setbeamercolor{itemize item}{fg=accent}
+\setbeamercolor{itemize subitem}{fg=accent}
+\setbeamercolor{enumerate item}{fg=accent}
+\setbeamercolor{block title}{bg=accent,fg=white}
+\setbeamercolor{block body}{bg=soft,fg=black}
+
+\setbeamerfont{title}{size=\Large,series=\bfseries}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{footline}{size=\tiny}
+
+% Footer with the deck's subject + slide number. The team name is omitted
+% entirely while it is blank, rather than leaving a dangling separator.
+\newcommand{\footleft}{\ifdefempty{\teamname}{\topicchoice}{\teamname{} -- \topicchoice}}
+% The box must be set \emph{to} the paper width, or the \hfill skips collapse
+% and the three parts run together on one line.
+\setbeamertemplate{footline}{%
+  \leavevmode%
+  \hbox to\paperwidth{\hspace*{2ex}\tiny\textit{\footleft}\hfill%
+  \tiny\textit{\coursecode{} -- \semester{}}\hfill%
+  \tiny\insertframenumber/\inserttotalframenumber\hspace*{2ex}}%
+  \vskip1pt%
+}
+
+% ===== CODE LISTINGS =================================================
+\definecolor{codegreen}{rgb}{0,0.55,0}
+\definecolor{codepurple}{rgb}{0.55,0,0.78}
+\lstdefinestyle{python}{
+  language=Python,
+  backgroundcolor=\color{soft},
+  commentstyle=\color{codegreen},
+  keywordstyle=\color{accent},
+  stringstyle=\color{codepurple},
+  basicstyle=\ttfamily\scriptsize,
+  breaklines=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{black!30},
+}
+
+% =====================================================================
+\begin{document}
+
+% ========== SLIDE 1: TITLE ===========================================
+{%
+\setbeamertemplate{footline}{}
+\begin{frame}[plain]
+  \begin{center}
+    \vspace{0.6cm}
+    {\small \textsc{\institution}}\\[0.2em]
+    {\small \textsc{\coursecode{} -- \coursename{} -- \semester{}}}\\[1.2em]
+    \rule{0.7\textwidth}{0.6pt}\\[0.4em]
+    {\Huge\bfseries\color{accent} \topicchoice}\\[0.4em]
+    \rule{0.7\textwidth}{0.6pt}\\[1.2em]
+    {\large \ifdefempty{\teamname}{\memberone}{\teamname}}\\[0.6em]
+    {\normalsize \memberone}\\[1cm]
+    {\footnotesize\itshape Final Project Defense -- \defensedate}\\[0.4em]
+    {\footnotesize\texttt{\repolink}}
+  \end{center}
+\end{frame}
+}
+
+% ========== SLIDE 2: PROBLEM =========================================
+\begin{frame}{The problem in one sentence}
+  \begin{block}{What the system does}
+    You ask one research question; the system retrieves evidence from Wikipedia, arXiv and the
+    open web \emph{concurrently}, and returns one answer whose numbered citations point at the
+    sources it actually used.
+  \end{block}
+
+  \vspace{0.3em}
+  \begin{columns}[T,onlytextwidth]
+  \column{0.48\textwidth}
+  \textbf{Inputs}
+  \begin{itemize}\setlength\itemsep{0.25em}
+    \item a question (non-empty, $\le$500 chars)
+    \item sources: \texttt{wikipedia}, \texttt{arxiv}, \texttt{web}
+    \item a results-per-source limit (1--20, default 3)
+  \end{itemize}
+
+  \column{0.48\textwidth}
+  \textbf{Outputs}
+  \begin{itemize}\setlength\itemsep{0.25em}
+    \item a cited answer + a numbered source list
+    \item a per-source retrieval report
+    \item a session row, and an exit status
+  \end{itemize}
+  \end{columns}
+
+  \vspace{0.5em}
+  \textbf{Entry points:} \texttt{python -m researcher ask} and \texttt{demo} (five supplied
+  questions). \textbf{No HTTP API} --- ADR-006; the container publishes no port.
+
+  \vspace{0.3em}
+  {\footnotesize Exit status is part of the contract: \textbf{0} answered (possibly partial),
+  \textbf{1} no usable answer, \textbf{2} bad input or configuration.}
+\end{frame}
+
+% ========== SLIDE 3: ARCHITECTURE ====================================
+\begin{frame}{Architecture}
+  \textbf{Where the provided \texttt{ai/} ends and our engineering begins.}
+
+  \vspace{0.2em}
+  \begin{center}
+  \begin{tikzpicture}[
+    node distance=4mm,
+    box/.style={draw,rounded corners=2pt,minimum height=7mm,align=center,
+                font=\scriptsize,inner sep=3pt},
+    ours/.style={box,fill=accent!10,draw=accent},
+    provided/.style={box,fill=soft,draw=accent,line width=0.8pt,text width=30mm},
+    entry/.style={box,fill=ok!15,draw=ok,line width=0.8pt},
+    arrow/.style={-Stealth,thick,draw=accent}
+  ]
+    \node[entry,text width=34mm] (cli) {\texttt{cli.py} --- \texttt{ask}, \texttt{demo}};
+    \node[ours,text width=34mm,below=of cli] (core) {\texttt{core/researcher.py}\\(the use case)};
+    \node[ours,text width=26mm,below=6mm of core,xshift=-25mm] (orch) {\texttt{services/}\\\texttt{orchestrator.py}};
+    \node[ours,text width=26mm,right=3mm of orch] (cache) {\texttt{services/}\\\texttt{cache.py}};
+    \node[ours,text width=26mm,right=3mm of cache] (aisvc) {\texttt{services/}\\\texttt{ai\_service.py}};
+    \node[ours,text width=44mm,below=6mm of cache] (store) {\texttt{storage/interfaces.py} --- two Protocols};
+    \node[ours,text width=28mm,below=4mm of store,xshift=-16mm] (pg) {\texttt{postgres.py}\\(PostgreSQL)};
+    \node[ours,text width=28mm,below=4mm of store,xshift=16mm] (mem) {\texttt{memory.py}\\(test double)};
+    \node[provided,right=9mm of aisvc] (ai) {\textbf{provided \texttt{ai/}}\\LLM + source fetchers};
+
+    \draw[arrow] (cli) -- (core);
+    \draw[arrow] (core) -- (orch);
+    \draw[arrow] (core) -- (cache);
+    \draw[arrow] (core) -- (aisvc);
+    \draw[arrow] (orch) -- (aisvc);
+    \draw[arrow] (orch) -- (cache);
+    \draw[arrow] (cache) -- (store);
+    \draw[arrow] (store) -- (pg);
+    \draw[arrow] (store) -- (mem);
+    \draw[arrow, dashed] (aisvc) -- (ai);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.1em}
+  {\footnotesize Layered modular monolith (ADR-001). \texttt{ai/} is imported, never modified,
+  and reached through one module.}
+\end{frame}
+
+% ========== SLIDE 4: KEY DESIGN DECISIONS ============================
+\begin{frame}{Three design decisions we can defend}
+  \begin{enumerate}\setlength\itemsep{0.5em}
+    \item \textbf{Protocols over abstract base classes, at both storage seams.}\\
+      An ABC imposes a \emph{nominal} relationship, so a test double must inherit from the real
+      implementation. A \texttt{Protocol} is structural --- which is why \texttt{memory.py} is a
+      genuine second implementation with the \emph{same} contract suite run against both.
+    \item \textbf{A semaphore, not a bigger \texttt{gather}.}\\
+      The bound on in-flight sources is configuration (1--16), not the shape of the code. And
+      each task carries its own deadline rather than one wrapping the group --- a group deadline
+      lets one slow source destroy two fast results.
+    \item \textbf{PostgreSQL for both the cache and the sessions} (ADR-002).\\
+      One store to operate; \texttt{ON CONFLICT} makes the database enforce the upsert; and
+      \texttt{PERSIST\_SESSIONS=false} still gives a database-free run.
+  \end{enumerate}
+
+  \vspace{0.15em}
+  \begin{block}{Expect to be asked}
+    ``Why not threads? Why not SQLite? Why not an HTTP API?'' --- answers in ADR-005, ADR-002,
+    ADR-006.
+  \end{block}
+\end{frame}
+
+% ========== SLIDE 5: CONCURRENCY (THE BENCHMARK) =====================
+\begin{frame}{Concurrency: the benchmark}
+  \textbf{Workload:} the five supplied sample questions, three sources, three results each, live
+  APIs, fresh cache (\texttt{python scripts/bench.py --repeat 1}).
+
+  \vspace{0.3em}
+  \begin{center}\small
+  \begin{tabular}{lccc}
+    \toprule
+    & \textbf{Sequential (b=1)} & \textbf{Concurrent (b=3)} & \textbf{Speedup} \\
+    \midrule
+    Retrieval (5 questions)   & 4.83\,s & 2.89\,s & \textbf{1.67$\times$} \\
+    Retrieval (per question)  & 0.97\,s & 0.58\,s & \textbf{1.67$\times$} \\
+    End to end (5 questions)  & 43.4\,s & 43.3\,s & \textbf{1.00$\times$} \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.25em}
+  \textbf{Bottleneck named:} synthesis is \emph{one sequential model call}, 89\,\% of wall-clock
+  time. The concurrency design optimised the other 11\,\%.
+
+  \vspace{0.2em}
+  \textbf{What didn't reach $N\times$:} the ceiling is not the source count but the ratio of
+  summed to slowest latency --- \textbf{1.83$\times$} here, so 1.67$\times$ is
+  \textbf{92\,\% of the ceiling}.
+\end{frame}
+
+% ========== SLIDE 6: ROBUSTNESS STORY ================================
+\begin{frame}{Robustness: one concrete failure mode}
+  \textbf{Scenario:} mid-verification, Gemini returned \texttt{429 RESOURCE\_EXHAUSTED}
+  (\texttt{limit: 20}, \texttt{Please retry in 21.9s}). Two of five demo questions unanswered.
+
+  \vspace{0.2em}
+  \textbf{How we surfaced it:} we suspected the new container and \emph{refuted} it --- the same
+  question from the host answered in 2.92\,s. Then we probed the provider directly to see the raw
+  payload behind our deliberately generic message.
+
+  \vspace{0.2em}
+  \textbf{What the system does:}
+  \begin{itemize}\setlength\itemsep{0.15em}
+    \item \textbf{Isolate:} \texttt{gather(return\_exceptions=True)} + a \texttt{SourceOutcome}
+      per source --- one question lost, not the run.
+    \item \textbf{Disclose:} the CLI names the failed source; exit 1 separates ``some questions
+      failed'' from ``the program broke''.
+    \item \textbf{Contain:} provider text never reaches a log --- it becomes an
+      \texttt{UpstreamError} with a safe message.
+  \end{itemize}
+
+  \vspace{0.2em}
+  \textbf{\textcolor{accent2}{The gap we are naming, not hiding:}} we wait a jittered
+  $\le$0.5\,s against a \textbf{21.9\,s} hint, so all three attempts land in one window.
+\end{frame}
+
+% ========== SLIDE 7: DEMO ============================================
+\begin{frame}[fragile]{Live demo (or scripted demo)}
+  \begin{block}{What we will run}
+    The five supplied sample questions end to end, inside the container, against a real
+    PostgreSQL --- showing the answer, its citations, and the per-source report.
+  \end{block}
+
+  \vspace{0.3em}
+  \textbf{Demo command (works inside Docker):}
+  \begin{lstlisting}[style=python,language=bash,numbers=none]
+$ docker compose up -d postgres
+$ docker compose run --rm app
+$ docker compose run --rm app python -m researcher ask \
+      "What is photosynthesis and what are its main stages?" \
+      --sources wikipedia arxiv web
+\end{lstlisting}
+
+  \vspace{0.2em}
+  \begin{itemize}\setlength\itemsep{0.2em}
+    \item The per-source report shows \texttt{attempts=0} on a cache hit, and names the source
+      that failed on a partial run.
+    \item The session row is written \emph{from inside the container}; 327 tests pass there with
+      \textbf{zero skips}.
+  \end{itemize}
+
+  \vspace{0.1em}
+  {\footnotesize\textit{Backup: the free tier allows 20 syntheses/day/model and a demo costs 5,
+  so a pre-recorded run guards against a spent quota.}}
+\end{frame}
+
+% ========== SLIDE 8: TESTING =========================================
+\begin{frame}{Testing}
+  \begin{columns}[T,onlytextwidth]
+  \column{0.54\textwidth}
+  \textbf{Coverage \& shape}
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item 327 tests; 96\,\% coverage over \texttt{researcher/}
+    \item 5\,925 lines of tests vs 4\,494 of application code
+    \item Provided \texttt{ai/} smoke tests: \textcolor{ok}{\textbf{16/16 passing}}
+    \item All offline --- \emph{enforced}, not intended
+  \end{itemize}
+
+  \column{0.44\textwidth}
+  \textbf{Three tests worth calling out}
+  \begin{itemize}\setlength\itemsep{0.3em}
+    \item Synthesis-deadline regression --- \emph{hangs} if the deadline is ever rejoined
+    \item The offline guard --- 11 cases, permits private ranges, refuses public ones
+    \item The storage contract --- one suite, both implementations
+  \end{itemize}
+  \end{columns}
+
+  \vspace{0.5em}
+  \begin{block}{Tooling}
+    \texttt{pytest} + \texttt{pytest-asyncio} (strict) + \texttt{respx}; \texttt{ruff};
+    \texttt{mypy} \texttt{--strict} over \texttt{researcher/} and \texttt{scripts/}. The offline
+    guard exists because five tests once passed while quietly calling the live API --- green and
+    wrong is the worst state a test can be in.
+  \end{block}
+\end{frame}
+
+% ========== SLIDE 9: LIMITATIONS + FUTURE ============================
+\begin{frame}{Limitations \& what we'd do next}
+  \textbf{Where the system is brittle today}
+  \begin{itemize}\setlength\itemsep{0.25em}
+    \item \textbf{Answer correctness is not verified.} A fluent, correctly-cited, \emph{wrong}
+      answer passes every check we have --- we validate structure, never support.
+    \item \textbf{The retry policy cannot escape a rate limit} (21.9\,s hint vs $\le$0.5\,s of
+      backoff), and the concurrency bound reacts to nothing.
+    \item \textbf{Concurrency stops at the question boundary} --- the demo's five questions run
+      sequentially, and \texttt{MAX\_PARALLEL\_SOURCES} bounds sources within a question only.
+  \end{itemize}
+
+  \vspace{0.35em}
+  \textbf{Given another week we would}
+  \begin{enumerate}\setlength\itemsep{0.25em}
+    \item Carry \texttt{Retry-After} out of classification into a retryable error, and add a
+      token bucket per provider.
+    \item Stream the synthesis, or overlap it with retrieval --- the \emph{only} change that
+      makes the concurrency work visible end to end (1.67$\times$ $\to$ a real end-to-end win).
+    \item Move PostgreSQL off \texttt{trust} auth to \texttt{scram-sha-256}, and add a grounding
+      check between each claim and its cited source.
+  \end{enumerate}
+\end{frame}
+
+% ========== SLIDE 10: CONTRIBUTIONS ==================================
+\begin{frame}{Contributions}
+  \begin{center}\small
+  \begin{tabularx}{\linewidth}{lXl}
+    \toprule
+    \textbf{Member} & \textbf{Primary ownership} & \textbf{Commits} \\
+    \midrule
+    \memberone & Everything: architecture, services, storage, CLI, tests, container, report & 100\,\% \\
+    \bottomrule
+  \end{tabularx}
+  \end{center}
+
+  \vspace{0.3em}
+  Solo submission. \texttt{git shortlog -sn} on \texttt{main} reports a single author, so the
+  contribution statement is single-member at 100\,\%.
+
+  \vspace{0.4em}
+  \begin{block}{I can answer for:}
+    Any file in the repo. Pick one --- including the four defects that only running the system
+    found.
+  \end{block}
+
+  \vspace{0.2em}
+  \textbf{AI tool use:} Claude (Anthropic) for scaffolding, test construction and documentation
+  drafts. Every claim in the report was verified by running the tests, the container and the
+  benchmark; the architectural decisions are mine.
+\end{frame}
+
+% ========== SLIDE 11: THANK YOU / Q&A ================================
+{%
+\setbeamertemplate{footline}{}
+\begin{frame}[plain]
+  \begin{center}
+    \vspace{1cm}
+    {\Huge\bfseries\color{accent} Questions?}\\[1.2em]
+    \rule{0.5\textwidth}{0.6pt}\\[1.2em]
+    {\large \ifdefempty{\teamname}{\memberone}{\teamname}}\\[0.6em]
+    {\normalsize \texttt{\repolink}}\\[1cm]
+    {\footnotesize\itshape ``We can walk through any file in the repo.''}
+  \end{center}
+\end{frame}
+}
+
+\end{document}
