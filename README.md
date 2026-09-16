@@ -6,7 +6,7 @@
 > numbered references. A slow or failing source degrades the answer instead of
 > breaking it.
 
-**Team:** _[TODO: team name]_ • **Topic:** 4 — Async Research Assistant • **Course:** AI-ENG-110 Software Engineering, AI Academy
+**Topic:** 4 — Async Research Assistant • **Course:** AI-ENG-110 Software Engineering, AI Academy
 
 **Due:** **May 23, 2026 at 23:59 (UTC+4)**
 
@@ -25,7 +25,7 @@ This repository is being built in the phases defined in [`docs/architecture.md`]
 | 5 — Orchestration | `orchestrator.py`, `cache.py`, `core/researcher.py` | **done** |
 | 6 — Vertical slice | `bootstrap.py`, rendering, CLI wiring, demo script | **done** |
 | 7 — Verification | Test suites, coverage ≥60%, type check, benchmark | **in review** |
-| 8 — Container and submission | Dockerfile, report, slides, contribution statement | not started |
+| 8 — Container and submission | Dockerfile, report, slides, contribution statement | **in progress** |
 
 The supplied AI layer (`ai/`), its smoke tests and the offline demo all run
 green — see [Testing](#testing).
@@ -60,13 +60,58 @@ python demo_ai.py --offline
 ## Run with Docker
 
 ```bash
+# Build, and prove the image without spending provider quota
 docker build -t finalproj .
-docker run --env-file .env finalproj
+docker run --rm finalproj pytest tests/test_ai_smoke.py
+
+# The demo, against a database that did not exist a minute ago
+docker compose run --rm app
+
+# Just the database, for running the SQL tests from the host
+docker compose up -d postgres
 ```
 
-Docker is not yet set up — the `Dockerfile` and `compose.yaml` land in Phase 8.
-The image will run the demo end-to-end from a single command given a populated
-`.env`.
+Verified 2026-09-16 on this machine: the image builds on `python:3.14.7-slim`,
+the 16 supplied smoke tests and the full 327-test suite pass inside the
+container, and the demo answers end to end with its sessions written to the
+compose PostgreSQL — `saved session 5b595539-…` in the run log, from a table the
+container itself created.
+
+The runtime image carries `pytest` and `tests/`, which reverses what
+`requirements-dev.txt` originally said. That was deliberate: the
+`Dockerfile.template` verifies an image by running `pytest
+tests/test_ai_smoke.py` inside it, and honouring that command costs no
+credentials and no network, so the image can be checked on a machine with no
+keys. The static-analysis tools (`ruff`, `mypy`) still stay out.
+
+**Two things about the container are not obvious, and both were found by running
+it rather than by reading it.**
+
+**`DATABASE_URL` cannot be `localhost` inside the image.** `localhost` in a
+container is the container. `docker run --env-file .env finalproj` therefore
+fails at startup against the `.env` written for host development — correctly,
+and naming the variable, but not usefully. Either point it somewhere reachable:
+
+```bash
+docker run --rm --env-file .env --network host finalproj    # Linux, host database
+docker run --rm --env-file .env -e DATABASE_URL= finalproj  # no database at all
+```
+
+or let `compose.yaml` set it, which is what the one-command path does.
+
+**`migrations/` has to be in the image.** `researcher/storage/postgres.py`
+derives the repository root from its own `__file__` and applies the schema at
+startup, so the SQL is as much part of the deployment as the code. `.dockerignore`
+excluded it until Phase 8. The omission was invisible because the host applies
+migrations too — the image built fine and would have died on its first run
+against a database, with a fatal `ConfigurationError` rather than a build error.
+
+Compose is also where the suite's offline guarantee needed widening. The guard
+in `tests/conftest.py` permitted loopback only, and under Compose the database
+is a sibling container at `172.18.0.2` — a private address a machine reaches
+with the cable pulled, which is the guard's own stated rule. It now tests the
+address rather than matching a list of three strings, and every public address
+is still refused.
 
 ## Environment variables
 
@@ -160,6 +205,12 @@ python -m researcher demo
 `--no-cache` bypasses the cache in **both** directions — no reads and no writes —
 so runs are reproducible.
 
+`demo` synthesises five answers, and the free tier allows twenty per day per
+model, so three runs exhaust a model's allowance. Every source is fetched live
+and cached, but the LLM call is never cached, which is why re-running `demo` on
+the same day costs another five. `LLM_MODEL` selects the bucket — the allowance
+is per model, so a spent one can be worked around rather than waited out.
+
 The answer is written to stdout and everything about the run — the per-source
 table, the warnings, the timings — to stderr, so a redirect captures the answer
 and nothing else:
@@ -247,7 +298,7 @@ python -m pytest --cov=researcher --cov-report=term-missing
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application suite: **316 tests passing, coverage 96%** (target ≥60%). The
+- Application suite: **327 tests passing, coverage 96%** (target ≥60%). The
   figure is measured over `researcher/` only, and every module in it is covered;
   the thinnest is `storage/session_repository.py` at 82%, where the uncovered
   lines are `asyncpg` error branches that need a database to fail in a way the
@@ -280,10 +331,17 @@ python -m pytest --cov=researcher --cov-report=term-missing
 │   └── validation.py      # input normalisation + output checks
 ├── tests/                 # provided smoke tests + our suite
 ├── data/                  # 5 sample research questions
+├── scripts/
+│   └── bench.py           # the sequential-vs-concurrent benchmark
+├── migrations/
+│   └── 001_initial_schema.sql
+├── artefacts/             # benchmark output, as submitted
 ├── docs/
 │   ├── architecture.md    # ADRs, module contracts, phase roadmap
 │   └── security.md        # security posture, gaps, hardening notes
 ├── demo_ai.py             # PROVIDED — AI-layer demo
+├── Dockerfile             # multi-stage; the image the demo runs from
+├── compose.yaml           # the application plus its PostgreSQL
 ├── pyproject.toml         # packaging + ruff/mypy config
 ├── requirements.txt       # pinned runtime
 ├── requirements-dev.txt   # pinned test + quality tooling
@@ -292,8 +350,7 @@ python -m pytest --cov=researcher --cov-report=term-missing
 └── README.md
 ```
 
-Later phases add `scripts/demo.py`, `scripts/bench.py`, `migrations/`,
-`artefacts/`, `report/`, `slides/`, `Dockerfile` and `compose.yaml`.
+Still to come in Phase 8: `report/`, `slides/` and the contribution statement.
 
 ## Architecture in one diagram
 
@@ -344,6 +401,25 @@ about still exits 0.
   times. That is deliberate — Wikipedia and arXiv are key-free and rate-limited,
   and the brief asks callers to be polite to them — but it is a ceiling on batch
   throughput rather than an accident.
+- **The retry policy cannot recover from a rate limit, and the margin is three
+  orders of magnitude.** Measured 2026-09-16: when the free tier refused a
+  synthesis it said so precisely — `429 RESOURCE_EXHAUSTED`, `To monitor your
+  current usage… Please retry in 21.9s` — while the policy waits a jittered
+  ≤0.5 s between three attempts, so all three land inside the same throttling
+  window and the call fails in under a second. `RetryPolicy.initial_backoff` is
+  a sensible number for a flaky socket and a useless one for a quota. Fixing it
+  properly means reading the provider's own `Retry-After`, which is not reachable
+  from where the retry happens: `_translate` replaces the provider's message with
+  a generic one *on purpose*, so the payload that carries the hint is discarded
+  before the policy sees it. The classification would have to carry the delay
+  forward. Until then the honest description is that a throttled run degrades to
+  a partial answer, which is at least reported as partial.
+- **The free tier is 20 syntheses per day, per model, and a demo costs 5.** The
+  allowance is per model, so a spent day can be worked around by pointing
+  `LLM_MODEL` at a model whose bucket is untouched — which is how the Phase 7
+  benchmark ran. A grader running the demo three times will exhaust one model.
+  This is a property of the free tier, not of the code, but it decides how many
+  times the end-to-end path can be demonstrated in a day.
 - `ai.synthesize()` is synchronous and calls a blocking SDK. It is moved to a
   worker thread so it cannot stall the event loop, but awaiting a timeout does
   not forcibly terminate the in-flight SDK call. Hard cancellation is not

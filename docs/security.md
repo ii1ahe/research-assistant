@@ -102,8 +102,28 @@ answer is presented as supported.
 is a politeness bound on our own behaviour, not a quota against a provider's
 limit, and it does not react to being throttled.
 
-*To productionize:* a token bucket per provider, and handling of `429` with
-`Retry-After` rather than a fixed backoff.
+**Measured, Phase 8 (2026-09-16).** The gap is not theoretical and the margin is
+large. When Gemini's free tier refused a synthesis it named both the limit and
+the remedy — `429 RESOURCE_EXHAUSTED`, `limit: 20, model: gemini-3.8-flash`,
+`Please retry in 21.9s` — while `RetryPolicy` waits a jittered ≤0.5 s between
+three attempts. Every attempt lands inside the same window, so a throttled
+synthesis fails in under a second despite having three tries and a 30 s
+deadline. The delay the provider asks for is roughly forty times the backoff
+ceiling.
+
+Honouring it is not a one-line change. The hint lives in the provider's payload,
+and `_translate` in `services/ai_service.py` replaces that payload with a
+generic message *deliberately*, so that a provider's error text cannot reach a
+log or a user. The classification is therefore the only place that can read
+`Retry-After`, and it currently has nowhere to put it — the taxonomy carries a
+category, not a delay.
+
+*To productionize:* a token bucket per provider; a `Retry-After`-carrying
+retryable error introduced at the classification boundary, where the payload
+still exists; and a policy that waits for the larger of its own backoff and the
+provider's instruction. The current behaviour is not unsafe — a throttled run
+degrades to a partial answer and says so — but it converts a recoverable
+condition into a lost question.
 
 ### D. Secrets live in the process environment
 

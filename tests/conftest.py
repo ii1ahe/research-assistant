@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import socket
 import uuid
@@ -283,11 +284,36 @@ class BrokenCache:
         raise StorageError("cache unavailable", source="storage")
 
 
-#: Hosts a test may reach: the local machine. The PostgreSQL integration tests
-#: in ``test_storage.py`` talk to a real server on loopback, and loopback still
-#: works with the cable pulled, so allowing it keeps the offline guarantee
-#: meaningful instead of merely strict.
+#: Hosts a test may reach without resolving anything: the local machine by name.
 _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", ""})
+
+
+def _is_reachable_offline(host: object) -> bool:
+    """Whether a test may connect to ``host`` and still be running offline.
+
+    Loopback, and the private and link-local address ranges. This applies the
+    rule the guard already states — a connection that still works with the cable
+    pulled is not the failure being caught — to the address rather than to a
+    fixed list of three strings.
+
+    It *was* a fixed list until Phase 8, and the container showed why that was
+    wrong. Under Docker Compose the database is a sibling container on a bridge
+    network, so ``DATABASE_URL`` resolves to ``172.18.0.2``; the guard refused
+    it and the seven PostgreSQL tests errored with "the test suite tried to
+    reach the network" — for a connection to a database the developer had
+    explicitly configured, on a machine doing nothing else. What the guard
+    exists to catch is a test silently depending on the internet, and every
+    public address is still refused.
+    """
+    if host in _LOOPBACK:
+        return True
+
+    try:
+        address = ipaddress.ip_address(str(host))
+    except ValueError:
+        return False
+
+    return address.is_loopback or address.is_private or address.is_link_local
 
 
 @pytest.fixture(autouse=True)
@@ -311,7 +337,7 @@ def no_internet(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def guard(self: socket.socket, address: object) -> None:
         host = address[0] if isinstance(address, tuple) and address else address
-        if isinstance(address, tuple) and host in _LOOPBACK:
+        if isinstance(address, tuple) and _is_reachable_offline(host):
             return real_connect(self, address)
         raise RuntimeError(
             f"the test suite tried to reach the network at {address!r}. Mock it "
