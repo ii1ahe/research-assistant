@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import runpy
 import sys
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from pathlib import Path
@@ -541,3 +542,35 @@ def test_demo_reads_the_whole_question_set_before_asking_any_of_it(
 
     assert service.requests == []
     assert opened.count == 0
+
+
+# ---------------------------------------------------------------------------
+# The module entry point
+# ---------------------------------------------------------------------------
+
+
+def test_python_dash_m_delegates_to_the_cli_and_propagates_its_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``python -m researcher`` is documented, so it is tested like any other seam.
+
+    Run through ``runpy`` rather than a subprocess so the call lands in this
+    process and the assertion is about the delegation itself: the module must
+    pass its own arguments through untouched and turn ``main``'s return value
+    into the process exit status. A subprocess test would prove the same thing
+    more slowly, and its coverage would not reach the report — ``pytest-cov``
+    measures this process, not the one it spawns.
+    """
+    seen: list[Sequence[str] | None] = []
+
+    def fake_main(argv: Sequence[str] | None = None) -> int:
+        seen.append(argv)
+        return cli.EXIT_FAILURE
+
+    monkeypatch.setattr(cli, "main", fake_main)
+
+    with pytest.raises(SystemExit) as caught:
+        runpy.run_module("researcher", run_name="__main__")
+
+    assert caught.value.code == cli.EXIT_FAILURE
+    assert seen == [None]

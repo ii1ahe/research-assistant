@@ -1,0 +1,81 @@
+Captured stdout of the benchmark run recorded in artefacts/bench.json.
+
+  date     2026-09-12
+  command  LLM_MODEL=gemini-3.6-flash python scripts/bench.py --pause 10 \
+               --json artefacts/bench.json
+
+Why LLM_MODEL is set: the free tier allows 20 synthesis requests per day per
+model, and a two-mode sweep costs 12. The default model's allowance was spent
+during the Phase 6 demo run and the first attempt at this benchmark, so the run
+below used a model whose allowance was untouched. Retrieval never calls the LLM
+at all, so the retrieval figures — the headline — are unaffected by the choice;
+both modes below used the same model, so the comparison is unaffected too.
+
+The --pause 10 is likewise a free-tier allowance, not part of the design. It
+waits between questions and never inside one, so it cannot contribute to a
+per-question timing; it shows up only in the sweep wall clock, which is why
+that row reads ~83s in both modes. See the docstring of scripts/bench.py.
+
+-------------------------------------------------------------------------------
+
+==============================================================================
+Sequential vs concurrent retrieval
+==============================================================================
+5 questions, every source per question (controlled); 10s between questions
+cache disabled; 0 source failure(s) across both sweeps
+
+Retrieval per question
+question     seq (bound=1)  con (bound=3)  speedup
+-----------  -------------  -------------  -------
+q1 (easy)            0.85s          0.49s    1.71x
+q2 (medium)          1.06s          0.57s    1.86x
+q3 (medium)          0.98s          0.68s    1.44x
+q4 (hard)            1.08s          0.54s    1.99x
+q5 (hard)            0.87s          0.61s    1.43x
+mean                 0.97s          0.58s    1.67x
+
+Stage totals over the sweep
+stage                seq (bound=1)  con (bound=3)  speedup
+-------------------  -------------  -------------  -------
+retrieval                    4.83s          2.89s    1.67x
+synthesis (control)         38.62s         40.44s    0.96x
+end-to-end                  43.45s         43.33s    1.00x
+sweep wall clock            83.52s         83.39s    1.00x
+
+Per source — sequential
+source     n  ok  empty  failed   mean    max
+---------  -  --  -----  ------  -----  -----
+arxiv      5   5      0       0  0.28s  0.37s
+web        5   5      0       0  0.15s  0.19s
+wikipedia  5   5      0       0  0.53s  0.61s
+
+Per source — concurrent
+source     n  ok  empty  failed   mean    max
+---------  -  --  -----  ------  -----  -----
+arxiv      5   5      0       0  0.30s  0.60s
+web        5   5      0       0  0.15s  0.18s
+wikipedia  5   5      0       0  0.55s  0.68s
+
+EXIT=0
+
+-------------------------------------------------------------------------------
+
+Two earlier runs are worth recording, because the failures say more than the
+success does.
+
+Run 1 — default model, no pacing. Retrieval came back clean (2.69x), but
+synthesis failed on 1 of 6 questions in the sequential sweep and on all 6 in the
+concurrent one, with HTTP 429 from the provider. The end-to-end row of that run
+compared five real syntheses against five refusals, and reported 4.65x. It was
+not a valid comparison and is not quoted; the benchmark now withholds that row
+whenever synthesis did not complete, and exits 1.
+
+Run 2 — after setting SYNTHESIS_TIMEOUT_SECONDS to 30. Sequential answered 5/5.
+This is the run that found the deadline defect: synthesis had been running under
+PER_SOURCE_TIMEOUT_SECONDS, ten seconds, and against the configured model it was
+already failing roughly one call in six on a quiet machine — 2.9s, 3.9s, 6.1s
+and 7.6s, then a timeout. The concurrent sweep answered 4/5, the last question
+refused for rate rather than for time, which is what prompted the --pause option.
+
+The run above is the first with all three constraints satisfied: a synthesis
+budget the model can meet, enough daily allowance, and pacing between questions.
