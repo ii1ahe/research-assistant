@@ -282,8 +282,8 @@ The system is a layered modular monolith with a flat package layout: \texttt{ai/
 \texttt{ai/} must be importable as a top-level package because the contract fixes it there, and a
 flat layout also means the stock \texttt{python:3.14.7-slim} image works with a plain
 \texttt{COPY} and a \texttt{WORKDIR}, with no \texttt{pip install .} and no packaging step in the
-container. The application is 4\,494 lines across 24 modules; the layering rule is enforced by
-import direction rather than by tooling, so a lower layer never imports from a higher one.
+container. The application is 4\,494 lines across 25 source files; the layering rule is enforced
+by import direction rather than by tooling, so a lower layer never imports from a higher one.
 
 \begin{figure}[htbp]
 \centering
@@ -941,9 +941,10 @@ over \texttt{researcher/} and \texttt{scripts/}. PostgreSQL 18.6 runs locally, a
 path was verified against \texttt{postgres:18.6-alpine}. The supplied \texttt{ai/} package is
 imported and never modified, so its behaviour is auditable against the original by diff.
 
-The Architecture Decision Records in \texttt{docs/adr/} carry the reasoning behind the choices
-this report argues for: the flat layout, PostgreSQL for both persistence concerns, Protocol-based
-storage interfaces, the bounded-concurrency model, and the decision not to build an HTTP API.
+The Architecture Decision Records in \texttt{docs/architecture.md} carry the reasoning behind the
+choices this report argues for: the flat layout, PostgreSQL for both persistence concerns,
+Protocol-based storage interfaces, the bounded-concurrency model, and the decision not to build an
+HTTP API.
 \texttt{docs/security.md} records the security posture and the gaps, checked against the running
 system rather than asserted.
 
