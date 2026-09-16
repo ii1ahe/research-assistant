@@ -34,8 +34,8 @@ green — see [Testing](#testing).
 
 ```bash
 # 1. Clone & install
-git clone https://github.com/your-team/your-repo
-cd your-repo
+git clone https://github.com/ii1ahe/research-assistant
+cd research-assistant
 python -m venv .venv && source .venv/bin/activate
 
 # 2. Install the pinned environment
