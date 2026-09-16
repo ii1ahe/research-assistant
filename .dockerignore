@@ -22,18 +22,29 @@ __pycache__
 .coverage
 htmlcov
 
+# --- Kept, and why -----------------------------------------------------------
+# README.md and pyproject.toml: the package metadata declares
+# `readme = "README.md"`, so excluding it would break `pip install .` inside the
+# image (COMMON_PITFALLS.md #6).
+#
+# migrations/: `researcher/storage/postgres.py` derives the repository root from
+# its own `__file__` and applies the schema at startup. Excluding this directory
+# still builds, and produces an image that dies on its first run against a
+# database with `StorageError: migration directory not found`. It was excluded
+# here until Phase 8 for the wrong reason: the host applies migrations too, so
+# the omission was invisible until the container tried to.
+#
+# tests/, pytest.ini and requirements-dev.txt: the image runs the supplied smoke
+# tests, which is how it is verified without spending provider quota. The
+# Dockerfile installs the test subset of requirements-dev.txt and leaves the
+# static-analysis tools to the host, where they belong.
+
 # --- Not needed to build or run the image -----------------------------------
-# README.md and pyproject.toml are deliberately kept: the package metadata
-# declares `readme = "README.md"`, so excluding it would break `pip install .`
-# inside the image (COMMON_PITFALLS.md #6).
-tests
 docs
 report
 slides
 templates
 artefacts
-migrations
 Dockerfile
 .dockerignore
 compose.yaml
-requirements-dev.txt

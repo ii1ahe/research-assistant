@@ -1,0 +1,61 @@
+# The application together with the PostgreSQL instance it stores into
+# (ADR-002: one database for both the source cache and the session store).
+#
+#   docker compose up --build
+#
+# This is the one-command reproduction: a clean clone, a populated .env, and
+# the demo runs end to end against a database that did not exist a minute ago.
+# Nothing has to be applied by hand, because `bootstrap` runs the migrations at
+# startup — which is also why the healthcheck matters. `depends_on` alone only
+# orders container *starts*, and PostgreSQL takes a couple of seconds to accept
+# connections; without `service_healthy` the application would reach
+# `PostgresStorage.connect` first and exit on the fatal ConfigurationError that
+# bootstrap raises for an unusable database. That failure would be correct and
+# thoroughly unhelpful.
+
+services:
+  postgres:
+    # Pinned to the minor version the project is developed against, so a
+    # rebuild does not silently change the server.
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: researcher
+      POSTGRES_DB: researcher
+      # The cluster is reachable only from the compose network — there is no
+      # `ports:` mapping — and this is a development fixture holding cache rows
+      # and session records. A deployment that exposed it would set
+      # POSTGRES_PASSWORD and require it.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      # `/var/lib/postgresql`, not `/var/lib/postgresql/data`. PostgreSQL 18
+      # moved to major-version-specific data directories under this path so
+      # `pg_upgrade --link` works across a mount boundary, and the image now
+      # refuses to start when it finds data in the old location — it reads a
+      # mount there as evidence of an upgrade that was never run. The symptom
+      # is a container that exits 1 before `pg_isready` ever runs.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U researcher -d researcher"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    # Provider credentials come from the host's .env. `required: false` so a
+    # clone without one still starts the stack and reports the missing key as
+    # a configuration error, rather than failing to parse this file.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Overrides whatever DATABASE_URL the host's .env carries. On the host it
+      # points at localhost, which inside a container is the container itself;
+      # here the database is reached by service name.
+      DATABASE_URL: postgresql://researcher@postgres:5432/researcher
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
