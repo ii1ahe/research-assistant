@@ -13,11 +13,13 @@
 \documentclass[aspectratio=169,11pt]{beamer}
 
 % ===== CONFIGURATION =================================================
-% One thing is still unfilled: \teamname and \memberone. Everything else
-% is final. The footline and the title slide adapt if \teamname is blank.
-\newcommand{\teamname}{}
+% Fill \teamname; the member names are the GitHub handles. Everything else
+% is final.
+\newcommand{\teamname}{\ph{team name}}
 \newcommand{\topicchoice}{Topic 4 --- Async Research Assistant}
-\newcommand{\memberone}{\ph{name} (@ii1ahe)}
+\newcommand{\memberone}{\texttt{@ii1ahe}}
+\newcommand{\membertwo}{\texttt{@fatimekazimli}}
+\newcommand{\memberthree}{\texttt{@Elmin995}}
 \newcommand{\repolink}{github.com/ii1ahe/research-assistant}
 \newcommand{\defensedate}{\today}
 
@@ -108,7 +110,7 @@
     {\Huge\bfseries\color{accent} \topicchoice}\\[0.4em]
     \rule{0.7\textwidth}{0.6pt}\\[1.2em]
     {\large \ifdefempty{\teamname}{\memberone}{\teamname}}\\[0.6em]
-    {\normalsize \memberone}\\[1cm]
+    {\normalsize \memberone \enspace \membertwo \enspace \memberthree}\\[1cm]
     {\footnotesize\itshape Final Project Defense -- \defensedate}\\[0.4em]
     {\footnotesize\texttt{\repolink}}
   \end{center}
@@ -292,8 +294,8 @@ $ docker compose run --rm app python -m researcher ask \
   \begin{itemize}\setlength\itemsep{0.2em}
     \item The per-source report shows \texttt{attempts=0} on a cache hit, and names the source
       that failed on a partial run.
-    \item The session row is written \emph{from inside the container}; 327 tests pass there with
-      \textbf{zero skips}.
+    \item The session row is written \emph{from inside the container}; the full 357-test suite
+      passes there with \textbf{zero skips}.
   \end{itemize}
 
   \vspace{0.1em}
@@ -307,8 +309,8 @@ $ docker compose run --rm app python -m researcher ask \
   \column{0.54\textwidth}
   \textbf{Coverage \& shape}
   \begin{itemize}\setlength\itemsep{0.3em}
-    \item 327 tests; 96\,\% coverage over \texttt{researcher/}
-    \item 5\,925 lines of tests vs 4\,494 of application code
+    \item 357 tests; 96\,\% coverage over \texttt{researcher/}
+    \item 6\,347 lines of tests vs 4\,615 of application code
     \item Provided \texttt{ai/} smoke tests: \textcolor{ok}{\textbf{16/16 passing}}
     \item All offline --- \emph{enforced}, not intended
   \end{itemize}
@@ -358,30 +360,32 @@ $ docker compose run --rm app python -m researcher ask \
 
 % ========== SLIDE 10: CONTRIBUTIONS ==================================
 \begin{frame}{Contributions}
-  \begin{center}\small
+  \small
+  \begin{center}
   \begin{tabularx}{\linewidth}{lXl}
     \toprule
-    \textbf{Member} & \textbf{Primary ownership} & \textbf{Commits} \\
+    \textbf{Member} & \textbf{Primary ownership} & \textbf{Share} \\
     \midrule
-    \memberone & Everything: architecture, services, storage, CLI, tests, container, report & 100\,\% \\
+    \memberone & Application: architecture, services, storage, CLI, tests, container, report, docs & 80\,\% \\
+    \membertwo & Clean-clone reproduction on a second machine (Brief B), the artefact and its diagnosis & 10\,\% \\
+    \memberthree & Peer review of PRs \#11 and \#12: approvals and inline comments & 10\,\% \\
     \bottomrule
   \end{tabularx}
   \end{center}
 
-  \vspace{0.3em}
-  Solo submission. \texttt{git shortlog -sn} on \texttt{main} reports a single author, so the
-  contribution statement is single-member at 100\,\%.
+  \vspace{0.2em}
+  Three members. \texttt{git shortlog -sn} reports 13 commits --- 12 ii1ahe, 1 fatimekazimli;
+  review produces no commits, so Elmin's share is the reviews on the PRs. Shares reflect work,
+  not commit counts.
 
-  \vspace{0.4em}
-  \begin{block}{I can answer for:}
-    Any file in the repo. Pick one --- including the four defects that only running the system
-    found.
+  \vspace{0.25em}
+  \begin{block}{We can answer for:}
+    Any file in the repo; the reproduction evidence and its diagnosis; the reviews on the PRs.
   \end{block}
 
-  \vspace{0.2em}
-  \textbf{AI tool use:} Claude (Anthropic) for scaffolding, test construction and documentation
-  drafts. Every claim in the report was verified by running the tests, the container and the
-  benchmark; the architectural decisions are mine.
+  \vspace{0.15em}
+  \textbf{AI tool use:} Claude (Anthropic) for scaffolding, tests and documentation drafts; every
+  claim was verified by running the system --- the architectural decisions are the team's.
 \end{frame}
 
 % ========== SLIDE 11: THANK YOU / Q&A ================================
