@@ -24,8 +24,8 @@ This repository is being built in the phases defined in [`docs/architecture.md`]
 | 4 — Resilient AI boundary | Logging, retry/rate limits, shared HTTP client, `ai_service.py` | **done** |
 | 5 — Orchestration | `orchestrator.py`, `cache.py`, `core/researcher.py` | **done** |
 | 6 — Vertical slice | `bootstrap.py`, rendering, CLI wiring, demo script | **done** |
-| 7 — Verification | Test suites, coverage ≥60%, type check, benchmark | **in review** |
-| 8 — Container and submission | Dockerfile, report, slides, contribution statement | **in progress** |
+| 7 — Verification | Test suites, coverage ≥60%, type check, benchmark | **done** |
+| 8 — Container and submission | Dockerfile, report, slides, contribution statement | **done** |
 
 The supplied AI layer (`ai/`), its smoke tests and the offline demo all run
 green — see [Testing](#testing).
@@ -34,8 +34,8 @@ green — see [Testing](#testing).
 
 ```bash
 # 1. Clone & install
-git clone https://github.com/your-team/your-repo
-cd your-repo
+git clone https://github.com/ii1ahe/research-assistant
+cd research-assistant
 python -m venv .venv && source .venv/bin/activate
 
 # 2. Install the pinned environment
@@ -342,6 +342,9 @@ python -m pytest --cov=researcher --cov-report=term-missing
 ├── demo_ai.py             # PROVIDED — AI-layer demo
 ├── Dockerfile             # multi-stage; the image the demo runs from
 ├── compose.yaml           # the application plus its PostgreSQL
+├── report/                # report.tex + compiled report.pdf
+├── slides/                # slides.tex + compiled slides.pdf
+├── CONTRIBUTION_STATEMENT.md
 ├── pyproject.toml         # packaging + ruff/mypy config
 ├── requirements.txt       # pinned runtime
 ├── requirements-dev.txt   # pinned test + quality tooling
@@ -350,7 +353,9 @@ python -m pytest --cov=researcher --cov-report=term-missing
 └── README.md
 ```
 
-Still to come in Phase 8: `report/`, `slides/` and the contribution statement.
+All eight phases are merged. The report is 13 pages, the deck is 11 frames,
+and every number in both is traceable to `artefacts/bench.json`, a test run,
+or the container.
 
 ## Architecture in one diagram
 
@@ -453,9 +458,11 @@ PostgreSQL cluster still uses `initdb`'s default `trust` authentication.
 
 ## Tools & acknowledgements
 
-AI assistants were used during development. The per-module disclosure is
-maintained in `templates/CONTRIBUTION_STATEMENT.md` and reproduced in the
-report.
+AI assistants were used during development. The per-module disclosure is in
+[`CONTRIBUTION_STATEMENT.md`](CONTRIBUTION_STATEMENT.md) and summarised in §10
+of the report. In short: Claude (Anthropic) for scaffolding, test construction
+and documentation drafts, with every claim verified by running the tests, the
+container and the benchmark. Copilot was not used.
 
 ## License
 

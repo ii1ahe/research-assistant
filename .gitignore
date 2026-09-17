@@ -39,6 +39,19 @@ htmlcov/
 *.db
 *.log
 
+# --- LaTeX build artifacts --------------------------------------------------
+# The .tex sources and the compiled .pdf are the deliverable; everything
+# LaTeX writes on the way there is regenerable from them.
+*.aux
+*.out
+*.toc
+*.snm
+*.nav
+*.vrb
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+
 # --- Editors / OS -----------------------------------------------------------
 .idea/
 .vscode/
