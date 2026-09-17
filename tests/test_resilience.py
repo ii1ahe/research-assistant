@@ -14,7 +14,13 @@ import asyncio
 
 import pytest
 
-from researcher.errors import ConfigurationError, StorageError, UpstreamError, UpstreamTimeoutError
+from researcher.errors import (
+    ConfigurationError,
+    StorageError,
+    UpstreamError,
+    UpstreamRateLimitError,
+    UpstreamTimeoutError,
+)
 from researcher.services.resilience import Attempts, RetryPolicy, deadline, execute
 
 pytestmark = pytest.mark.asyncio
@@ -236,6 +242,118 @@ async def test_the_attempt_tally_is_optional() -> None:
         return "ok"
 
     assert await execute(operation, policy=RetryPolicy(), description="test") == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Provider hints
+# ---------------------------------------------------------------------------
+
+
+async def test_a_provider_delay_larger_than_the_backoff_is_waited() -> None:
+    """The provider's own number beats ours when it is larger.
+
+    This is the fix for the measured throttle: a 21.9 s hint against a ≤0.5 s
+    backoff means all three attempts used to land in the same window. The wait
+    must be the hint, exactly, whatever the jitter draw says.
+    """
+    sleeper = Recorder()
+    calls = 0
+
+    async def operation() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise UpstreamRateLimitError(
+                "synthesis is rate-limited", source="synthesis", retry_after_seconds=2.0
+            )
+        return "recovered"
+
+    result = await execute(
+        operation,
+        policy=RetryPolicy(max_attempts=3, initial_backoff=0.1),
+        description="synthesis",
+        sleep=sleeper,
+        uniform=lambda: 1.0,  # the largest draw our backoff allows, still below the hint
+    )
+
+    assert result == "recovered"
+    assert sleeper.delays == [2.0]
+
+
+async def test_the_backoff_is_kept_when_it_is_larger_than_the_provider_delay() -> None:
+    """The hint is a floor, not a replacement: a small hint must not *shorten*
+    our own wait, which the jitter exists to spread."""
+    sleeper = Recorder()
+    calls = 0
+
+    async def operation() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise UpstreamRateLimitError(
+                "web is rate-limited", source="web", retry_after_seconds=0.1
+            )
+        return "recovered"
+
+    result = await execute(
+        operation,
+        policy=RetryPolicy(max_attempts=3, initial_backoff=1.0),
+        description="web fetch",
+        sleep=sleeper,
+        uniform=lambda: 0.5,
+    )
+
+    assert result == "recovered"
+    assert sleeper.delays == [0.5]
+
+
+async def test_the_provider_delay_is_waited_on_every_attempt() -> None:
+    """The hint applies per attempt, and survives the error on the way out."""
+    sleeper = Recorder()
+    attempts = Attempts()
+
+    async def operation() -> str:
+        raise UpstreamRateLimitError(
+            "synthesis is rate-limited", source="synthesis", retry_after_seconds=1.5
+        )
+
+    with pytest.raises(UpstreamRateLimitError) as caught:
+        await execute(
+            operation,
+            policy=RetryPolicy(max_attempts=3, initial_backoff=0.0),
+            description="synthesis",
+            attempts=attempts,
+            sleep=sleeper,
+            uniform=lambda: 0.0,
+        )
+
+    assert attempts.count == 3
+    assert sleeper.delays == [1.5, 1.5]
+    assert caught.value.retry_after_seconds == 1.5
+
+
+async def test_a_rate_limit_without_a_named_delay_uses_the_ordinary_backoff() -> None:
+    """No hint, no override: the throttle is retried like any transient failure."""
+    sleeper = Recorder()
+    calls = 0
+
+    async def operation() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise UpstreamRateLimitError("web is rate-limited", source="web")
+        return "recovered"
+
+    result = await execute(
+        operation,
+        policy=RetryPolicy(max_attempts=3, initial_backoff=1.0),
+        description="web fetch",
+        sleep=sleeper,
+        uniform=lambda: 0.25,
+    )
+
+    assert result == "recovered"
+    assert sleeper.delays == [0.25]
 
 
 # ---------------------------------------------------------------------------

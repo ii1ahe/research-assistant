@@ -543,6 +543,41 @@ async def test_a_transient_synthesis_failure_is_retried(
     assert answer.answer
 
 
+async def test_a_rate_limited_synthesis_waits_the_provider_hint_then_recovers(
+    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole chain: payload → parsed hint → wait → recovered attempt.
+
+    The provider names a delay larger than the policy's own (zero) backoff, so
+    the elapsed time tells the two implementations apart: without the fix the
+    retry lands immediately and the run finishes in milliseconds; with it the
+    wait is at least the hint. The margin is ten times the unfixed total, so a
+    slow CI machine cannot make this pass for the old behaviour.
+    """
+    calls = 0
+
+    def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ProviderError("Gemini call failed: 429 RESOURCE_EXHAUSTED. Please retry in 0.15s")
+        return _answer(question, sources)
+
+    monkeypatch.setattr("ai.synthesizer.synthesize", fake)
+
+    service = AIService(
+        make_settings(),
+        synthesis_policy=RetryPolicy(max_attempts=3, initial_backoff=0.0, max_backoff=0.0),
+    )
+    started = time.perf_counter()
+    answer = await service.synthesize("a question", [_source(1)])
+    elapsed = time.perf_counter() - started
+
+    assert calls == 2
+    assert answer.answer
+    assert elapsed >= 0.1
+
+
 async def test_a_non_retryable_synthesis_failure_is_not_repeated(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

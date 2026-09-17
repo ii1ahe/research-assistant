@@ -15,6 +15,7 @@ from researcher.errors import (
     ResearcherError,
     StorageError,
     UpstreamError,
+    UpstreamRateLimitError,
     UpstreamTimeoutError,
 )
 from researcher.services.resilience import RetryPolicy
@@ -108,6 +109,16 @@ def test_timeouts_are_retried_by_default() -> None:
     assert RetryPolicy().should_retry(UpstreamTimeoutError("slow", source="arxiv"))
 
 
+def test_a_rate_limit_is_retryable_whatever_it_carries() -> None:
+    """A throttle is exactly the failure another attempt is meant to recover."""
+    assert RetryPolicy().should_retry(UpstreamRateLimitError("web is rate-limited", source="web"))
+    assert RetryPolicy().should_retry(
+        UpstreamRateLimitError(
+            "synthesis is rate-limited", source="synthesis", retry_after_seconds=21.9
+        )
+    )
+
+
 def test_timeouts_are_abandoned_when_the_policy_says_so() -> None:
     """The synthesis case: the work may still be running and billing upstream."""
     policy = RetryPolicy(retry_timeouts=False)
@@ -121,6 +132,7 @@ def test_timeouts_are_abandoned_when_the_policy_says_so() -> None:
     [
         ConfigurationError("bad config"),
         UpstreamError("boom", source="web"),
+        UpstreamRateLimitError("web is rate-limited", source="web"),
         UpstreamTimeoutError("slow", source="arxiv"),
         StorageError("no database"),
     ],

@@ -96,34 +96,39 @@ delimit it unambiguously in the prompt, strip control sequences and
 instruction-shaped markup, and add a grounding or entailment check before an
 answer is presented as supported.
 
-### C. The concurrency bound is not a rate limit
+### C. The concurrency bound is not a rate limit — throttles are now honoured
 
 `MAX_PARALLEL_SOURCES` caps how many source tasks are in flight at once. That
 is a politeness bound on our own behaviour, not a quota against a provider's
-limit, and it does not react to being throttled.
+limit. What changed since the measurement below is that a throttle is now
+*reacted to* rather than retried into the same window.
 
-**Measured, Phase 8 (2026-09-16).** The gap is not theoretical and the margin is
-large. When Gemini's free tier refused a synthesis it named both the limit and
-the remedy — `429 RESOURCE_EXHAUSTED`, `limit: 20, model: gemini-3.8-flash`,
-`Please retry in 21.9s` — while `RetryPolicy` waits a jittered ≤0.5 s between
-three attempts. Every attempt lands inside the same window, so a throttled
-synthesis fails in under a second despite having three tries and a 30 s
-deadline. The delay the provider asks for is roughly forty times the backoff
+**Measured, Phase 8 (2026-09-16).** The gap was not theoretical and the margin
+was large. When Gemini's free tier refused a synthesis it named both the limit
+and the remedy — `429 RESOURCE_EXHAUSTED`, `limit: 20, model: gemini-3.8-flash`,
+`Please retry in 21.9s` — while `RetryPolicy` waited a jittered ≤0.5 s between
+three attempts. Every attempt landed inside the same window, so a throttled
+synthesis failed in under a second despite having three tries and a 30 s
+deadline. The delay the provider asked for is roughly forty times the backoff
 ceiling.
 
-Honouring it is not a one-line change. The hint lives in the provider's payload,
-and `_translate` in `services/ai_service.py` replaces that payload with a
-generic message *deliberately*, so that a provider's error text cannot reach a
-log or a user. The classification is therefore the only place that can read
-`Retry-After`, and it currently has nowhere to put it — the taxonomy carries a
-category, not a delay.
+**Fixed, 2026-09-17.** The fix respects the boundary the measurement
+described. The hint lives in the provider's payload, and `_translate` replaces
+that payload with a generic message *deliberately*, so that a provider's error
+text cannot reach a log or a user — the classification boundary is the last
+place the raw text exists, so it is also the place that parses the delay out
+of it. `UpstreamRateLimitError` carries the parsed number (never the text);
+`execute` waits the larger of its jittered backoff and the hint, uncapped by
+`max_backoff` and bounded instead by the caller's deadline. A throttle with no
+parseable delay is still classified, and still retried on the ordinary
+backoff. Tests cover the parse shapes, the precedence (own backoff versus the
+hint), the per-attempt application, and the no-leak guarantee that the
+payload's text does not reach the message.
 
-*To productionize:* a token bucket per provider; a `Retry-After`-carrying
-retryable error introduced at the classification boundary, where the payload
-still exists; and a policy that waits for the larger of its own backoff and the
-provider's instruction. The current behaviour is not unsafe — a throttled run
-degrades to a partial answer and says so — but it converts a recoverable
-condition into a lost question.
+*To productionize:* a token bucket per provider, so a quota is anticipated
+rather than discovered by the first refused call. The current behaviour no
+longer converts a recoverable throttle into a lost question; it converts it
+into a slower answer.
 
 ### D. Secrets live in the process environment
 

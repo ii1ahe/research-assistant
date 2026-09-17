@@ -419,19 +419,19 @@ about still exits 0.
   times. That is deliberate — Wikipedia and arXiv are key-free and rate-limited,
   and the brief asks callers to be polite to them — but it is a ceiling on batch
   throughput rather than an accident.
-- **The retry policy cannot recover from a rate limit, and the margin is three
-  orders of magnitude.** Measured 2026-09-16: when the free tier refused a
-  synthesis it said so precisely — `429 RESOURCE_EXHAUSTED`, `To monitor your
-  current usage… Please retry in 21.9s` — while the policy waits a jittered
-  ≤0.5 s between three attempts, so all three land inside the same throttling
-  window and the call fails in under a second. `RetryPolicy.initial_backoff` is
-  a sensible number for a flaky socket and a useless one for a quota. Fixing it
-  properly means reading the provider's own `Retry-After`, which is not reachable
-  from where the retry happens: `_translate` replaces the provider's message with
-  a generic one *on purpose*, so the payload that carries the hint is discarded
-  before the policy sees it. The classification would have to carry the delay
-  forward. Until then the honest description is that a throttled run degrades to
-  a partial answer, which is at least reported as partial.
+- **A throttle is now waited out, but only after it happens.** Measured
+  2026-09-16: when the free tier refused a synthesis it said so precisely —
+  `429 RESOURCE_EXHAUSTED`, `To monitor your current usage… Please retry in
+  21.9s` — while the policy waited a jittered ≤0.5 s between three attempts,
+  so all three landed inside the same throttling window and the call failed in
+  under a second. Fixed 2026-09-17: the provider's named delay is parsed at the
+  classification boundary — the last place the payload exists, since
+  `_translate` deliberately discards it so provider text cannot reach a log or
+  a user — and carried on `UpstreamRateLimitError`, so the policy waits the
+  larger of its own jittered backoff and the provider's instruction. What
+  remains is anticipation: the first call still discovers the quota by being
+  refused, because the application keeps no per-provider token bucket of its
+  own.
 - **The free tier is 20 syntheses per day, per model, and a demo costs 5.** The
   allowance is per model, so a spent day can be worked around by pointing
   `LLM_MODEL` at a model whose bucket is untouched — which is how the Phase 7

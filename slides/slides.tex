@@ -337,8 +337,9 @@ $ docker compose run --rm app python -m researcher ask \
   \begin{itemize}\setlength\itemsep{0.25em}
     \item \textbf{Answer correctness is not verified.} A fluent, correctly-cited, \emph{wrong}
       answer passes every check we have --- we validate structure, never support.
-    \item \textbf{The retry policy cannot escape a rate limit} (21.9\,s hint vs $\le$0.5\,s of
-      backoff), and the concurrency bound reacts to nothing.
+    \item \textbf{Throttles are honoured, not anticipated.} The provider's \texttt{Retry-After}
+      (measured: 21.9\,s) is now parsed at the classification boundary and waited --- but the
+      first call still discovers a spent quota by being refused.
     \item \textbf{Concurrency stops at the question boundary} --- the demo's five questions run
       sequentially, and \texttt{MAX\_PARALLEL\_SOURCES} bounds sources within a question only.
   \end{itemize}
@@ -346,8 +347,8 @@ $ docker compose run --rm app python -m researcher ask \
   \vspace{0.35em}
   \textbf{Given another week we would}
   \begin{enumerate}\setlength\itemsep{0.25em}
-    \item Carry \texttt{Retry-After} out of classification into a retryable error, and add a
-      token bucket per provider.
+    \item Add a token bucket per provider, so a quota is anticipated instead of discovered by
+      the first refused call.
     \item Stream the synthesis, or overlap it with retrieval --- the \emph{only} change that
       makes the concurrency work visible end to end (1.67$\times$ $\to$ a real end-to-end win).
     \item Move PostgreSQL off \texttt{trust} auth to \texttt{scram-sha-256}, and add a grounding
