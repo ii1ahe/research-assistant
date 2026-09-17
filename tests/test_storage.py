@@ -297,6 +297,34 @@ async def cleanup(storage: Storage):
         await conn.execute("DELETE FROM research_sessions WHERE question LIKE $1", tag + "%")
 
 
+async def test_connect_bounds_the_pool_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unreachable database must fail fast, not wait out the driver's 60 s default.
+
+    The clean-clone reproduction (``artefacts/reproduction-codespaces-bfec78.txt``)
+    measured the old behaviour: seven skipped tests at sixty seconds each, because
+    ``create_pool`` was called without a timeout and asyncpg waits a minute by default.
+    """
+    opened: list[dict[str, object]] = []
+
+    async def fake_create_pool(dsn: str, **kwargs: object) -> object:
+        opened.append(kwargs)
+        return object()  # migrate=False keeps connect() from touching the pool
+
+    monkeypatch.setattr("researcher.storage.postgres.asyncpg.create_pool", fake_create_pool)
+
+    await PostgresStorage.connect(
+        "postgresql://researcher@localhost:5432/researcher", migrate=False
+    )
+    await PostgresStorage.connect(
+        "postgresql://researcher@localhost:5432/researcher", migrate=False, timeout=2.5
+    )
+
+    assert opened == [
+        {"min_size": 1, "max_size": 5, "timeout": 10.0},
+        {"min_size": 1, "max_size": 5, "timeout": 2.5},
+    ]
+
+
 async def test_postgres_cache_contract(storage: Storage, cleanup: str) -> None:
     await assert_cache_contract(storage, cleanup)
 

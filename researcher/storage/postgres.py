@@ -186,6 +186,7 @@ class PostgresStorage:
         *,
         min_size: int = 1,
         max_size: int = 5,
+        timeout: float = 10.0,
         migrate: bool = True,
         migrations_path: Path | None = None,
     ) -> PostgresStorage:
@@ -196,6 +197,14 @@ class PostgresStorage:
             min_size: Connections opened eagerly. At least one so that an
                 unreachable database fails here rather than on first use.
             max_size: Hard ceiling on concurrent connections.
+            timeout: Seconds a connection attempt may take before the pool
+                open fails. The driver's default is 60 s, which turns an
+                unreachable database into a minute of silence per attempt —
+                the clean-clone reproduction
+                (``artefacts/reproduction-codespaces-bfec78.txt``) measured
+                seven skipped tests at sixty seconds each. Fail fast instead,
+                so bootstrap reports the unusable database rather than
+                hanging.
             migrate: Set false only when the caller manages migrations itself.
             migrations_path: Override for the migration directory.
 
@@ -208,7 +217,9 @@ class PostgresStorage:
                 does not leak connections.
         """
         try:
-            pool = await asyncpg.create_pool(dsn, min_size=min_size, max_size=max_size)
+            pool = await asyncpg.create_pool(
+                dsn, min_size=min_size, max_size=max_size, timeout=timeout
+            )
         except DRIVER_ERRORS as exc:
             raise StorageError("could not connect to the database", source="storage") from exc
 

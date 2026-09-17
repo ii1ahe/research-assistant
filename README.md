@@ -71,11 +71,11 @@ docker compose run --rm app
 docker compose up -d postgres
 ```
 
-Verified 2026-09-16 on this machine: the image builds on `python:3.14.7-slim`,
-the 16 supplied smoke tests and the full 327-test suite pass inside the
-container, and the demo answers end to end with its sessions written to the
+Verified on this machine: the image builds on `python:3.14.7-slim`, the 16
+supplied smoke tests and the full 357-test suite pass inside the container
+(2026-09-17), and the demo answers end to end with its sessions written to the
 compose PostgreSQL — `saved session 5b595539-…` in the run log, from a table the
-container itself created.
+container itself created (2026-09-16).
 
 The runtime image carries `pytest` and `tests/`, which reverses what
 `requirements-dev.txt` originally said. That was deliberate: the
@@ -308,11 +308,15 @@ pip-audit -r requirements.txt
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application suite: **333 tests passing, coverage 96%** (target ≥60%). The
-  figure is measured over `researcher/` only, and every module in it is covered;
-  the thinnest is `storage/session_repository.py` at 82%, where the uncovered
+- Application suite: **357 tests, coverage 96%** (target ≥60%). The figure is
+  measured over `researcher/` only, and every module in it is covered; the
+  thinnest is `storage/session_repository.py` at 82%, where the uncovered
   lines are `asyncpg` error branches that need a database to fail in a way the
-  doubles cannot reproduce.
+  doubles cannot reproduce. Seven of the 357 are PostgreSQL integration tests
+  that skip — with the reason printed — when no database is reachable, so the
+  suite stays green offline; the clean-clone reproduction
+  (`artefacts/reproduction-codespaces-bfec78.txt`) recorded them as
+  349 passed + 7 skipped on a machine whose database was unreachable.
 - Every test runs offline: the `ai` module and the HTTP layer are mocked
   (`respx` for `httpx`). The suite must pass with the network cable pulled.
 - Offline is **enforced, not merely intended**: an autouse fixture in

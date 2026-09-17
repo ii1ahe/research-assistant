@@ -19,9 +19,9 @@
 \newcommand{\phh}[1]{\textcolor{ph}{\textit{#1}}}
 
 % ===== CONFIGURATION =================================================
-% Exactly one thing here is still unfilled: \teamname and the member
-% name. Everything else is final.
-\newcommand{\teamname}{}
+% Fill \teamname. Members are listed by GitHub handle. Everything else is
+% final.
+\newcommand{\teamname}{\phh{team name}}
 \newcommand{\topicchoice}{Topic 4 --- Async Research Assistant}
 \newcommand{\member}[2]{\textbf{#1} (#2)}  % name, GitHub handle
 \newcommand{\reportdate}{\today}
@@ -143,7 +143,7 @@
 \textbf{Team:} & \teamname & \textbf{Date:} & \reportdate \\
 \textbf{Repo:} & \repolink & \textbf{Tag:} & \texttt{v1.0-final} \\
 \textbf{Members:} & \multicolumn{3}{X@{}}{%
-  \member{\ph{name}}{\texttt{@ii1ahe}}
+  \texttt{@ii1ahe} \quad \texttt{@fatimekazimli} \quad \texttt{@Elmin995}
 }\\
 \end{tabularx}
 \vspace{0.3em}\hrule\vspace{0.4em}
@@ -710,8 +710,8 @@ it describes is a flag that will be.
 
 \subsection{Strategy and coverage}
 
-\texttt{pytest}, 327 tests, 96\,\% statement coverage over \texttt{researcher/},
-5\,925 lines of test code against 4\,494 lines of application code. Coverage is measured over
+\texttt{pytest}, 357 tests, 96\,\% statement coverage over \texttt{researcher/},
+6\,347 lines of test code against 4\,615 lines of application code. Coverage is measured over
 the application package only, and the figure is reported because it is real rather than because
 it is a target: two modules sit below 100\,\% deliberately, and the reason is always a line that
 can only execute when a third-party library misbehaves in a way we cannot provoke.
@@ -814,10 +814,17 @@ missed and all of which are fixed:
 \end{enumerate}
 
 Verification, as opposed to assertion: 16/16 smoke tests pass \emph{inside the image} with no
-credentials, no network and no quota consumed; the full 327-test suite passes inside Compose
+credentials, no network and no quota consumed; the full 357-test suite passes inside Compose
 against a real PostgreSQL with \textbf{zero skips}; and the demo answers end to end, writing a
 real session row from inside the container. The README records the exact commands and the date
 they were verified.
+
+The clean-clone reproduction on a second machine — a fresh GitHub Codespace —
+is recorded in \texttt{artefacts/reproduction-codespaces-bfec78.txt}: 349 passed with the seven
+PostgreSQL tests skipped, because the Codespace's Docker-in-Docker bridge drops
+container-to-container traffic. The diagnosis is in the artefact, as is its second finding:
+an unreachable database cost sixty seconds per attempt — the driver's default connect timeout
+— which is fixed here, where \texttt{PostgresStorage.connect} now fails fast.
 
 \subsection{Configuration}
 
