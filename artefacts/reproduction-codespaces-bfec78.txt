@@ -1,0 +1,88 @@
+Reproduction on codespaces-bfec78, 2026-09-17
+
+Machine:
+  Environment: GitHub Codespace — a fresh cloud VM, created 2026-09-17 on my
+    GitHub account. Nothing had ever been installed on it by hand; Docker and
+    compose come with the Codespace image.
+  OS:      Linux codespaces-bfec78 6.8.0-1064-azure #72~22.04.1-Ubuntu SMP
+           Wed Jul 22 23:39:45 UTC 2026 x86_64
+  Docker:  Docker version 29.7.2-2, build a7dcaa6fdb6ed04aacbfdc76357fdae01605609e
+  Compose: Docker Compose version v5.5.0
+
+Cloned: main at 6f5407d3731b24e17eebe1ac10aa893a47a0f4f5
+
+Commands and output:
+
+  $ docker build -t finalproj .
+  [+] Building 0.4s (14/14) FINISHED
+  => [internal] load build definition from Dockerfile
+  => [internal] load metadata for docker.io/library/python:3.14.7-slim
+  => [builder 4/4] RUN pip install --no-cache-dir --prefix=/install ...
+  => exporting to image
+  => naming to docker.io/library/finalproj:latest
+  (All layers CACHED: `docker compose run` in the step below had already
+  built the same image from this same clone a few minutes earlier.)
+
+  $ docker run --rm finalproj pytest tests/test_ai_smoke.py
+  platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+  asyncio: mode=Mode.STRICT
+  collected 16 items
+  tests/test_ai_smoke.py ................    [100%]
+  16 passed in 0.05s
+
+  $ docker compose up -d postgres
+  [+] up 1/1
+   ✔ Container research-assistant-postgres-1 Running
+
+  $ docker compose run --rm app pytest -q
+  349 passed, 7 skipped, 1 warning in 435.54s (0:07:15)
+
+  The seven skips are the PostgreSQL tests in tests/test_storage.py:
+    SKIPPED [1] tests/test_storage.py:300: PostgreSQL not reachable
+                ([storage] could not connect to the database)
+    ... the same at lines 304, 308, 320, 328, 374, 390
+  The warning is a DeprecationWarning inside google/genai/types.py:42, a
+  third-party library — harmless, and not in our code.
+
+Live demo: skipped (no API key on this machine).
+
+What differed, failed, or surprised me:
+
+  On the developer machine the suite prints 356 passed with no skips, because
+  it runs against a local PostgreSQL. Here 7 database tests skipped, so I dug
+  into why:
+
+  - `docker compose ps`: the postgres container is Up and healthy.
+  - `docker compose logs postgres`: the server is ready and accepting
+    connections.
+  - `docker inspect research-assistant-postgres-1`: postgres is attached to
+    the research-assistant_default network at 172.18.0.2.
+  - From inside the app container, `postgres` resolves correctly to
+    172.18.0.2, but a raw TCP connect to 172.18.0.2:5432 times out after
+    10 s. DNS works; the TCP handshake never completes.
+
+  So container-to-container traffic over the Docker bridge does not work in
+  this environment. A GitHub Codespace runs Docker inside a container
+  (Docker-in-Docker), and its bridge does not carry packets between sibling
+  containers here. This is a property of the Codespace platform, not of the
+  repository: the same compose path was exercised during Phase 8 development
+  (the offline-guard docstring in tests/conftest.py even documents the
+  database at 172.18.0.2 under compose), and on a normal Docker host the
+  compose demo runs end to end.
+
+  The run also took 7:15 for 14 tests, and the diagnosis explains that too:
+  asyncpg's default connect timeout is 60 s, our connect call sets none
+  (researcher/storage/postgres.py, create_pool), and 7 x 60 s ~ 420 s of the
+  435.54 s total is the skipped tests waiting out their timeouts. That is a
+  real finding: an unreachable database should fail fast, not hang for a
+  minute per attempt.
+
+Things the README didn't tell me:
+
+  - Database tests skip (not fail) when PostgreSQL is not reachable. The
+    contributor brief mentions it ("Seven tests skip if PostgreSQL isn't
+    running. Expected, not a failure.") but the README does not — worth a
+    line in its testing section.
+  - The skipped-tests timeout above. A follow-up change can give
+    PostgresStorage.connect an explicit timeout so bootstrap fails fast
+    instead of waiting out asyncpg's 60 s default per attempt.
