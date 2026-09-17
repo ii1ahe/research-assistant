@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
 import time
 from collections.abc import Sequence
 
@@ -44,6 +46,7 @@ from researcher.errors import (
     InvalidRequestError,
     ResearcherError,
     UpstreamError,
+    UpstreamRateLimitError,
     UpstreamTimeoutError,
 )
 from researcher.models import (
@@ -79,21 +82,76 @@ _MISCONFIGURATION_MARKERS = (
     "expected anthropic",
 )
 
+#: Substrings in a ``ProviderError`` message that mean "throttled", as opposed
+#: to "failed just now". A throttle is worth naming even without a parseable
+#: delay, because it is the one upstream condition the policy must treat
+#: differently from a dropped connection.
+_THROTTLING_MARKERS = (
+    "429",
+    "resource_exhausted",
+    "rate limit",
+    "rate-limited",
+    "quota",
+    "throttl",
+)
+
+#: Ways providers name the delay they ask us to wait. Google's free tier says
+#: "Please retry in 21.9s"; HTTP-shaped payloads may carry a ``Retry-After``
+#: header instead. Units other than seconds are deliberately not matched: a
+#: value we cannot be sure about is better discarded than misread — the policy
+#: still retries on its own backoff without it.
+_RETRY_AFTER_PATTERNS = (
+    re.compile(
+        r"retry in\s+(?P<delay>\d+(?:\.\d+)?)\s*(?:s\b|secs?\b|seconds?\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"retry-after:?\s+(?P<delay>\d+(?:\.\d+)?)\s*s?\b", re.IGNORECASE),
+)
+
+
+def _retry_after_hint(text: str) -> float | None:
+    """Parse the delay a provider asks us to wait, when it names one.
+
+    The hint is read off the raw payload here because this function is only
+    called from :func:`_translate` — the classification boundary where the
+    payload still exists, and the one place allowed to read it. Only the
+    *number* is carried forward; the surrounding text is discarded with the
+    rest of the payload.
+    """
+    for pattern in _RETRY_AFTER_PATTERNS:
+        match = pattern.search(text)
+        if match is None:
+            continue
+        delay = float(match.group("delay"))
+        if math.isfinite(delay):
+            return delay
+    return None
+
 
 def _translate(exc: ProviderError, *, source: str) -> ResearcherError:
     """Classify a supplied-package failure into this application's taxonomy.
 
     A misconfiguration carries an actionable message that names the missing
     variable and holds nothing sensitive, so it is passed through verbatim.
-    Anything else may embed a provider payload or a URL, and is replaced with a
-    generic message — the original is kept as ``__cause__`` for the traceback,
-    which is where diagnostics belong. The same split is used by
+    A throttle is recognised by its markers and by the delay the provider
+    names — and the delay is parsed out here, while the payload still exists,
+    into :class:`~researcher.errors.UpstreamRateLimitError` so the retry
+    policy can honour it; the raw text itself does not travel. Anything else
+    may embed a provider payload or a URL, and is replaced with a generic
+    message — the original is kept as ``__cause__`` for the traceback, which
+    is where diagnostics belong. The same split is used by
     :func:`researcher.storage._driver.translate`.
     """
     text = str(exc)
     lowered = text.casefold()
     if any(marker in lowered for marker in _MISCONFIGURATION_MARKERS):
         return ConfigurationError(text, source=source)
+    hint = _retry_after_hint(text)
+    if hint is not None or any(marker in lowered for marker in _THROTTLING_MARKERS):
+        message = f"{source} is rate-limited"
+        if hint is not None:
+            message += f"; the provider asks to retry in {hint:g}s"
+        return UpstreamRateLimitError(message, source=source, retry_after_seconds=hint)
     return UpstreamError(f"{source} request failed", source=source)
 
 

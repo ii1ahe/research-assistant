@@ -522,8 +522,8 @@ is the single most useful thing we built, because it found the next defect too.
 
 \texttt{MAX\_PARALLEL\_SOURCES} bounds how many of \emph{our} tasks are in flight. It is a
 politeness limit on our own behaviour and it is not a rate limit: it does not know what the
-provider's quota is and it does not react to being throttled. We treat that as a known gap
-rather than as a solved problem, and running the container gave us a measurement of it.
+provider's quota is. What it does now, since the measurement below, is react to being throttled
+--- the provider's own retry instruction is honoured instead of ignored.
 
 The free tier for the configured model permits \textbf{20 generation requests per day, per
 model}, and a demo run costs five syntheses --- so three runs exhaust the model's bucket. When
@@ -531,26 +531,29 @@ the bucket ran out, the provider answered with a payload that named both the lim
 remedy:
 
 \begin{lstlisting}[style=python,numbers=none,caption={The provider's own words, abridged. The
-hint is precise and our policy ignores all of it.},captionpos=b]
+hint is precise, and until the fix below our policy ignored all of it.},captionpos=b]
 429 RESOURCE_EXHAUSTED ... limit: 20, model: gemini-3.8-flash
                           Please retry in 21.9s
 \end{lstlisting}
 
-Our retry policy waits a full-jitter backoff of at most 0.5\,s between three attempts. Every
-attempt therefore lands inside the same throttle window, and a throttle that the provider
-describes as recoverable in 22 seconds is converted into a lost question that fails in under a
-second with three attempts and a 30-second deadline unused. The delay the provider asks for is
-roughly forty times our backoff ceiling.
+Our retry policy then waited a full-jitter backoff of at most 0.5\,s between three attempts, so
+every attempt landed inside the same throttle window: a throttle the provider described as
+recoverable in 22 seconds became a lost question that failed in under a second, with three
+attempts spent and a 30-second deadline unused. The delay the provider asked for was roughly
+forty times our backoff ceiling.
 
-Honouring it is not a one-line change, and the reason is a decision we would defend separately:
+Honouring it was not a one-line change, and the reason is a decision we would defend separately:
 \texttt{services/ai\_service.py} \emph{deliberately discards} the provider's raw payload when it
 translates a failure, so upstream error text can never reach a log or a user. The consequence is
-that classification is the last place the \texttt{Retry-After} value exists, and our taxonomy
-carries a category but has nowhere to put a delay. Fixing it properly means a retryable error
-type that carries the delay, raised where the payload is still in scope, plus a policy that waits
-for the larger of its own backoff and the provider's instruction. The current behaviour is not
-unsafe --- a throttled run degrades to a disclosed partial answer --- but it turns a recoverable
-condition into a lost question.
+that classification is the last place the \texttt{Retry-After} value exists --- so that is where
+it is now parsed. A new \texttt{UpstreamRateLimitError} carries the parsed delay (a number,
+never the payload text it came from), and the retry policy waits for the larger of its own
+jittered backoff and the provider's instruction, uncapped by \texttt{max\_backoff} and bounded
+instead by the operation's deadline. A throttle that names no parseable delay is still
+classified, and still retried on the ordinary backoff. The payload itself still never reaches a
+log or a user --- a test asserts that the measured payload's text does not appear in the message.
+What remains for production is a token bucket that anticipates a quota instead of discovering
+it through the first refused call.
 
 % =====================================================================
 \section{Robustness \& Error Handling}

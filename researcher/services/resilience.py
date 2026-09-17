@@ -13,6 +13,12 @@ and therefore the only step that can tell a missing credential from a dropped
 connection: the supplied package raises one coarse ``ProviderError`` for both.
 Keeping that judgement at the boundary and consuming its verdict here means
 there is one classifier rather than two that can drift apart.
+
+The verdict is consumed the same way when it carries a delay: a
+:class:`~researcher.errors.UpstreamRateLimitError` reports the wait the
+provider asked for, and :func:`execute` honours it as a floor under its own
+backoff. The parsing still happened at the boundary; here the number is just
+a number.
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from researcher.errors import ResearcherError, UpstreamTimeoutError
+from researcher.errors import ResearcherError, UpstreamRateLimitError, UpstreamTimeoutError
 
 __all__ = ["Attempts", "RetryPolicy", "deadline", "execute"]
 
@@ -131,6 +137,15 @@ async def execute[T](
     and trip the rate limit that caused the failure. Spreading them out is the
     difference between recovering and synchronising the retry storm.
 
+    One failure overrides that draw: when the error carries the provider's own
+    ``Retry-After``, the wait is the larger of the jittered backoff and that
+    hint. The ceiling is this application's politeness; the hint is the
+    provider's statement about its own quota, and ignoring the larger of the
+    two is what turned a recoverable throttle into a lost question. The hint
+    is not jittered — it is already the spacing the provider computed — and it
+    is not capped by :attr:`RetryPolicy.max_backoff`; the caller's deadline,
+    which wraps this whole call, is the bound that still applies.
+
     Args:
         operation: A zero-argument coroutine function performing one attempt.
             It must be safe to call again. Every operation retried here is
@@ -164,15 +179,32 @@ async def execute[T](
                 # diagnostic, and `raise exc` would append this frame to it.
                 raise
             delay = uniform() * policy.backoff_ceiling(attempt)
-            logger.warning(
-                "%s failed on attempt %d/%d (%s: %s); retrying in %.2fs",
-                description,
-                attempt,
-                policy.max_attempts,
-                exc.code,
-                exc.message,
-                delay,
+            retry_after = (
+                exc.retry_after_seconds if isinstance(exc, UpstreamRateLimitError) else None
             )
+            if retry_after is not None and retry_after > delay:
+                logger.warning(
+                    "%s failed on attempt %d/%d (%s: %s); provider said to retry "
+                    "in %.2fs, honouring that over the %.2fs backoff",
+                    description,
+                    attempt,
+                    policy.max_attempts,
+                    exc.code,
+                    exc.message,
+                    retry_after,
+                    delay,
+                )
+                delay = retry_after
+            else:
+                logger.warning(
+                    "%s failed on attempt %d/%d (%s: %s); retrying in %.2fs",
+                    description,
+                    attempt,
+                    policy.max_attempts,
+                    exc.code,
+                    exc.message,
+                    delay,
+                )
             await sleep(delay)
 
 

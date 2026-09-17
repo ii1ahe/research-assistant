@@ -27,6 +27,7 @@ __all__ = [
     "ResearcherError",
     "StorageError",
     "UpstreamError",
+    "UpstreamRateLimitError",
     "UpstreamTimeoutError",
 ]
 
@@ -101,6 +102,38 @@ class UpstreamError(ResearcherError):
 
     code: ClassVar[str] = "upstream_error"
     retryable: ClassVar[bool] = True
+
+
+class UpstreamRateLimitError(UpstreamError):
+    """The provider throttled us, possibly naming how long to wait.
+
+    Distinct from a plain :class:`UpstreamError` because the provider's answer
+    to a throttle is *actionable*: it names a delay after which the same call
+    would be accepted. That delay is parsed out of the provider's payload at
+    the classification boundary — the only place the payload still exists —
+    and carried here so the retry policy can honour it. The message itself is
+    composed from safe parts; the raw payload stays in ``__cause__``.
+    """
+
+    code: ClassVar[str] = "upstream_rate_limit"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        source: str | None = None,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        """Initialize the error.
+
+        Args:
+            message: Safe, human-readable text.
+            source: The affected source or operation.
+            retry_after_seconds: The delay the provider asked for, parsed from
+                its payload, or ``None`` when it throttled without naming one.
+        """
+        super().__init__(message, source=source)
+        self.retry_after_seconds = retry_after_seconds
 
 
 class UpstreamTimeoutError(UpstreamError):
