@@ -1,0 +1,20 @@
+pip-audit 2.10.1 -- dependency vulnerability scan
+Run: 2026-09-17
+
+$ .venv/bin/pip-audit -r requirements.txt
+No known vulnerabilities found
+
+$ .venv/bin/pip-audit -r requirements-dev.txt
+No known vulnerabilities found
+
+Scanned pins:
+  runtime:  httpx 0.28.1, numpy 2.5.3, pydantic 2.13.5, pydantic-settings 2.15.0,
+            tenacity 9.1.4, asyncpg 0.31.0, anthropic 1.5.0, google-genai 2.14.0
+  dev:      pytest 9.1.1, pytest-asyncio 1.4.0, pytest-cov 7.1.0, respx 0.23.1,
+            ruff 0.16.7, mypy 2.3.1, pip-audit 2.10.1
+
+A clean scan is a snapshot, not a property: it says these pins were not known
+vulnerable on this date. Re-run after any pin change:
+
+    .venv/bin/pip-audit -r requirements.txt
+    .venv/bin/pip-audit -r requirements-dev.txt

@@ -28,12 +28,13 @@ import runpy
 import sys
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import researcher.cli as cli
 from researcher import __version__
-from researcher.errors import ConfigurationError, InvalidRequestError
+from researcher.errors import ConfigurationError, InvalidRequestError, StorageError
 from researcher.models import (
     PersistenceStatus,
     ResearchRequest,
@@ -67,11 +68,35 @@ class Recorder:
         return make_result(question=request.question)
 
 
-class FakeApplication:
-    """The one attribute the CLI uses."""
+class FakeCache:
+    """Stands in for the cache service the purge command drives."""
 
-    def __init__(self, service: Recorder) -> None:
+    def __init__(self, removed: int = 0, error: Exception | None = None) -> None:
+        self.removed = removed
+        self.error = error
+        self.calls = 0
+
+    async def purge_expired_strict(self, *, now: object = None) -> int:
+        """Record the call, then fail or report as scripted."""
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.removed
+
+
+class FakeApplication:
+    """The attributes the CLI uses."""
+
+    def __init__(
+        self,
+        service: Recorder,
+        *,
+        settings: SimpleNamespace | None = None,
+        cache: FakeCache | None = None,
+    ) -> None:
         self.service = service
+        self.settings = settings if settings is not None else SimpleNamespace(database_url=None)
+        self.cache = cache
 
 
 class Opened:
@@ -99,17 +124,20 @@ def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[Build]:
         results: Sequence[ResearchResult] = (),
         error: Exception | None = None,
         bootstrap_error: Exception | None = None,
+        *,
+        settings: SimpleNamespace | None = None,
+        cache: FakeCache | None = None,
     ) -> tuple[Recorder, Opened]:
         service = Recorder(results, error)
         opened = Opened()
 
         @contextlib.asynccontextmanager
-        async def fake_bootstrap(settings: object = None) -> AsyncIterator[FakeApplication]:
+        async def fake_bootstrap(_settings: object = None) -> AsyncIterator[FakeApplication]:
             if bootstrap_error is not None:
                 raise bootstrap_error
             opened.count += 1
             try:
-                yield FakeApplication(service)
+                yield FakeApplication(service, settings=settings, cache=cache)
             finally:
                 opened.closed += 1
 
@@ -547,6 +575,78 @@ def test_demo_reads_the_whole_question_set_before_asking_any_of_it(
 # ---------------------------------------------------------------------------
 # The module entry point
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# purge
+# ---------------------------------------------------------------------------
+
+
+def _purge_settings(database_url: str | None) -> SimpleNamespace:
+    """The one setting the purge command reads."""
+    return SimpleNamespace(database_url=database_url)
+
+
+def test_purge_reports_how_many_entries_were_removed(
+    install: Build, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, opened = install(
+        settings=_purge_settings("postgresql://researcher@localhost/researcher"),
+        cache=FakeCache(removed=3),
+    )
+
+    assert cli.main(["purge"]) == cli.EXIT_OK
+
+    captured = capsys.readouterr()
+    assert captured.out == "purged 3 expired cache entries\n"
+    assert captured.err == ""
+    # The purge path goes through the same lifecycle as ask and demo.
+    assert opened.count == 1
+    assert opened.closed == 1
+
+
+def test_purge_spells_the_singular_correctly(
+    install: Build, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install(
+        settings=_purge_settings("postgresql://researcher@localhost/researcher"),
+        cache=FakeCache(removed=1),
+    )
+
+    assert cli.main(["purge"]) == cli.EXIT_OK
+
+    assert capsys.readouterr().out == "purged 1 expired cache entry\n"
+
+
+def test_purge_without_a_database_reports_nothing_and_succeeds(
+    install: Build, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cache = FakeCache()
+    install(settings=_purge_settings(None), cache=cache)
+
+    assert cli.main(["purge"]) == cli.EXIT_OK
+
+    captured = capsys.readouterr()
+    assert captured.out == "purged 0 expired cache entries (no database is configured)\n"
+    assert captured.err == ""
+    # The service was never reached: with no database there is nothing to ask.
+    assert cache.calls == 0
+
+
+def test_a_purge_the_database_refuses_exits_one(
+    install: Build, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install(
+        settings=_purge_settings("postgresql://researcher@localhost/researcher"),
+        cache=FakeCache(error=StorageError("the database refused the delete", source="storage")),
+    )
+
+    assert cli.main(["purge"]) == cli.EXIT_FAILURE
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not purge the cache" in captured.err
+    assert "the database refused the delete" in captured.err
 
 
 def test_python_dash_m_delegates_to_the_cli_and_propagates_its_status(

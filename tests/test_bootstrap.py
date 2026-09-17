@@ -298,6 +298,7 @@ async def test_the_service_releases_its_client_before_the_client_is_closed() -> 
         storage=None,
         client=OrderedClient(),  # type: ignore[arg-type]
         ai=OrderedAI(),  # type: ignore[arg-type]
+        cache=object(),  # type: ignore[arg-type]
     )
 
     await application.aclose()
@@ -315,6 +316,7 @@ async def test_an_application_that_was_never_used_can_still_be_closed(
         storage=None,
         client=httpx.AsyncClient(),
         ai=SilentAI(),  # type: ignore[arg-type]
+        cache=object(),  # type: ignore[arg-type]
     )
 
     async with application:

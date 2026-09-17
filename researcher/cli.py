@@ -35,7 +35,7 @@ from pathlib import Path
 
 from researcher import __version__
 from researcher.bootstrap import Application, bootstrap
-from researcher.errors import ConfigurationError, InvalidRequestError
+from researcher.errors import ConfigurationError, InvalidRequestError, StorageError
 from researcher.models import PersistenceStatus, ResearchRequest, ResearchResult, ResultStatus
 from researcher.rendering import render_answer, render_diagnostics, render_summary
 
@@ -120,6 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     demo = commands.add_parser("demo", help="Run the five supplied sample questions from data/.")
     demo.add_argument("--no-cache", action="store_true", help="Bypass the cache entirely.")
+
+    commands.add_parser("purge", help="Delete expired cache entries from the configured database.")
 
     return parser
 
@@ -257,6 +259,28 @@ async def _demo(
     return EXIT_OK
 
 
+async def _purge(application: Application) -> int:
+    """Delete expired cache entries, and report how many were removed.
+
+    ``purge`` is housekeeping, so its result is the command's answer and goes
+    to stdout like any other answer. The one failure it can meet after a
+    successful bootstrap — a database that refuses the delete — is an
+    operational failure, reported as exit status 1 rather than 2: nothing the
+    user typed is wrong, and retrying unchanged might well succeed.
+    """
+    if application.settings.database_url is None:
+        print("purged 0 expired cache entries (no database is configured)")
+        return EXIT_OK
+    try:
+        removed = await application.cache.purge_expired_strict()
+    except StorageError as exc:
+        print(f"researcher: could not purge the cache: {exc.message}", file=sys.stderr)
+        return EXIT_FAILURE
+    noun = "entry" if removed == 1 else "entries"
+    print(f"purged {removed} expired cache {noun}")
+    return EXIT_OK
+
+
 async def run(args: argparse.Namespace) -> int:
     """Drive the application for a parsed command.
 
@@ -275,6 +299,10 @@ async def run(args: argparse.Namespace) -> int:
             cannot be used, or the supplied question set is unusable.
         InvalidRequestError: The arguments do not describe a runnable request.
     """
+    if args.command == "purge":
+        async with bootstrap() as application:
+            return await _purge(application)
+
     use_cache = not args.no_cache
 
     if args.command == "demo":

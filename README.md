@@ -200,10 +200,15 @@ python -m researcher ask "What is the current state of fusion energy research?"
 python -m researcher ask "How does CRISPR-Cas9 work?" --sources wiki,arxiv
 python -m researcher ask "..." --no-cache
 python -m researcher demo
+python -m researcher purge    # delete expired cache rows from the database
 ```
 
 `--no-cache` bypasses the cache in **both** directions — no reads and no writes —
 so runs are reproducible.
+
+`purge` deletes expired cache rows and reports how many; with no database
+configured it says so and exits 0. It is not scheduled — ADR-006 rules out a
+daemon — so it is a command an operator runs when they want the cleanup.
 
 `demo` synthesises five answers, and the free tier allows twenty per day per
 model, so three runs exhaust a model's allowance. Every source is fetched live
@@ -294,11 +299,16 @@ python -m pytest tests/test_ai_smoke.py -v
 
 # Full application suite with coverage
 python -m pytest --cov=researcher --cov-report=term-missing
+
+# Lint, format check, type check, dependency audit
+ruff check . && ruff format --check .
+mypy researcher scripts
+pip-audit -r requirements.txt
 ```
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application suite: **327 tests passing, coverage 96%** (target ≥60%). The
+- Application suite: **333 tests passing, coverage 96%** (target ≥60%). The
   figure is measured over `researcher/` only, and every module in it is covered;
   the thinnest is `storage/session_repository.py` at 82%, where the uncovered
   lines are `asyncpg` error branches that need a database to fail in a way the
@@ -309,6 +319,9 @@ python -m pytest --cov=researcher --cov-report=term-missing
   `conftest.py` refuses any connection off this machine, and permits loopback so
   the PostgreSQL integration tests still run. `tests/test_offline_guard.py`
   tests the guard itself.
+- Dependency pins are scanned with `pip-audit` (pinned in
+  `requirements-dev.txt`); the 2026-09-17 run found nothing, and the raw output
+  is committed in `artefacts/pip-audit.txt`.
 
 ## Project layout
 

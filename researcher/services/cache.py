@@ -183,3 +183,17 @@ class CacheService:
         except StorageError as exc:
             logger.warning("purging expired cache entries failed: %s", exc)
             return 0
+
+    async def purge_expired_strict(self, *, now: datetime | None = None) -> int:
+        """Delete expired entries, propagating a storage failure.
+
+        The request path uses :meth:`purge_expired`, which degrades a failed
+        purge to zero removals and a log line — correct there, where the purge
+        is housekeeping behind a fetch that will proceed regardless. A purge
+        *command* is the operation's whole purpose: its failure must reach the
+        caller, or the CLI would report a successful purge of a database that
+        just refused it.
+        """
+        if self._cache is None:
+            return 0
+        return await self._cache.purge_expired(now=now)
