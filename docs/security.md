@@ -141,20 +141,30 @@ correctly-cited, **wrong** answer passes every check the system has. This is
 inherent to the approach, not a defect that more code removes, and it is why
 partial and degraded results are surfaced to the user rather than smoothed over.
 
-### F. Cache retention is implemented but not scheduled
+### F. Cache retention needs an operator to run the purge
 
-`purge_expired` exists and is tested, but nothing calls it on a schedule, so
-expired rows accumulate until something does.
+`purge_expired` exists and is tested, and `researcher purge` now calls it
+from the command line — reporting how many rows it removed, failing loudly
+(exit 1) if the database refuses the delete, and saying so when no database
+is configured. It is **not scheduled**, by design: the application has no
+daemon and no HTTP API (ADR-006), so the only honest shape for housekeeping
+is a command an operator runs. Expired rows therefore accumulate until
+someone runs it.
 
-*To productionize:* a retention job, or a database-side scheduled task.
+*To productionize:* a cron entry on the host, or a database-side scheduled
+task. The purge itself now exists; what is left is the reminder to invoke
+it.
 
-### G. Dependencies are pinned but not scanned
+### G. Dependency pins are scanned, but only when someone remembers
 
-Pinning in `requirements.txt` gives reproducible builds. Nothing scans those
-pins for known vulnerabilities.
+Pinning in `requirements.txt` gives reproducible builds, and the pins are now
+scanned: `pip-audit` is pinned in `requirements-dev.txt`, and the 2026-09-17
+run against both the runtime and the dev pins found **no known
+vulnerabilities** — the raw output is committed in `artefacts/pip-audit.txt`.
 
-*To productionize:* `pip-audit` (or equivalent) in CI, plus automated update
-PRs.
+*To productionize:* run `pip-audit` in CI on every change to either
+requirements file, plus automated update PRs. A one-off scan is a snapshot,
+not a property.
 
 ## Checked and found clean
 

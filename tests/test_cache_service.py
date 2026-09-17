@@ -16,6 +16,7 @@ from datetime import timedelta
 import pytest
 
 from researcher.config import Settings
+from researcher.errors import StorageError
 from researcher.models import CacheKey, SourceName, utc_now
 from researcher.services.cache import CacheService
 from researcher.storage.memory import InMemorySourceCache
@@ -192,6 +193,22 @@ async def test_a_failed_purge_reports_nothing_removed(make_settings: SettingsFac
     service = CacheService(BrokenCache(), make_settings())
 
     assert await service.purge_expired() == 0
+
+
+async def test_a_strict_purge_propagates_a_storage_failure(make_settings: SettingsFactory) -> None:
+    """A purge command is the delete's whole purpose, so it cannot degrade."""
+    service = CacheService(BrokenCache(), make_settings())
+
+    with pytest.raises(StorageError):
+        await service.purge_expired_strict()
+
+
+async def test_a_strict_purge_with_no_store_reports_nothing_removed(
+    make_settings: SettingsFactory,
+) -> None:
+    service = CacheService(None, make_settings())
+
+    assert await service.purge_expired_strict() == 0
 
 
 # ---------------------------------------------------------------------------

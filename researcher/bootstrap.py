@@ -141,6 +141,7 @@ class Application:
         storage: Storage | None,
         client: httpx.AsyncClient,
         ai: AIService,
+        cache: CacheService,
     ) -> None:
         """Initialize the application. Construct via :func:`bootstrap`."""
         self._settings = settings
@@ -148,6 +149,7 @@ class Application:
         self._storage = storage
         self._client = client
         self._ai = ai
+        self._cache = cache
         self._closed = False
 
     @property
@@ -164,6 +166,15 @@ class Application:
     def storage(self) -> Storage | None:
         """The open storage, or ``None`` when running without a database."""
         return self._storage
+
+    @property
+    def cache(self) -> CacheService:
+        """The cache service the housekeeping commands drive.
+
+        Always present: with no database configured it is the same service,
+        backed by nothing, and every operation degrades to its own no-op.
+        """
+        return self._cache
 
     async def aclose(self) -> None:
         """Release the HTTP pool and the database, once, in that order.
@@ -252,7 +263,7 @@ async def bootstrap(settings: Settings | None = None) -> AsyncIterator[Applicati
         raise
 
     application = Application(
-        settings=resolved, service=service, storage=storage, client=client, ai=ai
+        settings=resolved, service=service, storage=storage, client=client, ai=ai, cache=cache
     )
     try:
         yield application

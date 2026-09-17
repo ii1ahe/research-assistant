@@ -13,3 +13,6 @@ respx==0.23.1          # httpx transport mocking; keeps the suite offline
 # --- Static analysis ---------------------------------------------------------
 ruff==0.16.7
 mypy==2.3.1
+
+# --- Security scanning -------------------------------------------------------
+pip-audit==2.10.1      # scans the runtime pins for known vulnerabilities
