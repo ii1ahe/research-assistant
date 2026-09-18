@@ -74,12 +74,13 @@ WikipediaSearch = Literal["fulltext", "opensearch"]
 #:
 #: Verified against the live API: ``gemini-2.0-flash`` -> 404, and
 #: ``gemini-2.5-flash`` -> 404 ("no longer available to new users"), so 2.x is
-#: not a usable target at all. ``gemini-3.8-flash`` was confirmed working
-#: end-to-end through ``ai.synthesize``.
+#: not a usable target for this account. On 2026-09-18, ``gemini-3.8-flash``
+#: timed out on source-backed questions, while ``gemini-3.1-flash-lite``
+#: completed two full CLI questions with citations and persistence.
 _DEFAULT_LLM_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-4o-mini",
-    "gemini": "gemini-3.8-flash",
+    "gemini": "gemini-3.1-flash-lite",
 }
 
 #: Recognisable model-name prefixes, used only to catch the shared-``LLM_MODEL``

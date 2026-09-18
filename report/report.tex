@@ -233,7 +233,7 @@ supplies two things: source fetchers (\texttt{fetch\_wikipedia}, \texttt{fetch\_
 takes a question and a list of sources and returns an \texttt{AnswerWithCitations}.
 
 We run on \textbf{Gemini} via the supplied \texttt{GeminiLLM} provider on
-\texttt{gemini-3.8-flash}, with Tavily for web search and key-free Wikipedia and arXiv for the
+\texttt{gemini-3.1-flash-lite}, with Tavily for web search and key-free Wikipedia and arXiv for the
 rest. Two facts about that choice are worth recording. First, the providers in
 \texttt{ai/providers/google.py} fall back to \texttt{gemini-2.0-flash}, which is retired --- every
 2.x model returns HTTP~404, so the application configures the model explicitly rather than relying

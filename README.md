@@ -177,13 +177,16 @@ shape. Setting `WIKIPEDIA_SEARCH=opensearch` restores the supplied fetcher
 exactly. The query itself is never rewritten either way; the difference is which
 fetcher receives it.
 
-**If you select `gemini`**, set `LLM_MODEL` explicitly. The supplied
+**If you select `gemini`**, the application uses `gemini-3.1-flash-lite` when
+`LLM_MODEL` is unset; you can also set that model explicitly. The supplied
 `ai/providers/google.py` falls back to `gemini-2.0-flash`, which the API now
 rejects with `404 NOT_FOUND` — the model has been retired, and `gemini-2.5-flash`
-is refused as well. `researcher/config.py` therefore ships a working gemini
-default (`gemini-3.8-flash`) rather than mirroring `ai/`'s retired literal; that
-deliberate divergence is documented at `_DEFAULT_LLM_MODELS`. This project runs
-on `gemini` with `gemini-3.8-flash`.
+is refused for this account as well. `researcher/config.py` therefore supplies
+its own gemini default rather than mirroring `ai/`'s retired literal. In the
+2026-09-18 live rehearsal, `gemini-3.8-flash` timed out on source-backed prompts;
+`gemini-3.1-flash-lite` completed two full CLI questions with citations and
+session persistence in about three seconds each. Provider availability can
+change, so rehearse with the configured account before presenting.
 
 `DATABASE_URL` controls both storage concerns (ADR-002): the source cache and
 the session store both live in PostgreSQL. With it unset, nothing is cached and
