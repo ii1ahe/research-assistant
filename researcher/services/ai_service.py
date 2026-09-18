@@ -96,8 +96,8 @@ _THROTTLING_MARKERS = (
 )
 
 #: Ways providers name the delay they ask us to wait. Google's free tier says
-#: "Please retry in 21.9s"; HTTP-shaped payloads may carry a ``Retry-After``
-#: header instead. Units other than seconds are deliberately not matched: a
+#: "Please retry in 21.9s"; exception text may also spell out ``Retry-After``.
+#: An HTTP header alone is not read here. Units other than seconds are deliberately not matched: a
 #: value we cannot be sure about is better discarded than misread — the policy
 #: still retries on its own backoff without it.
 _RETRY_AFTER_PATTERNS = (

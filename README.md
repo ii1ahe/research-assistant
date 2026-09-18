@@ -127,14 +127,14 @@ against a live provider. Everything else has a working default.
 | `TAVILY_API_KEY` / `SERPER_API_KEY` | for those providers | — | Web-search credential (DuckDuckGo needs none) |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `CACHE_TTL_SECONDS` | no | `86400` | How long a cached source result stays fresh |
-| `PER_SOURCE_TIMEOUT_SECONDS` | no | `10` | Per-source deadline during retrieval |
+| `PER_SOURCE_TIMEOUT_SECONDS` | no | `10` | Per-source fetch deadline, including retries; cache operations are outside it |
 | `SYNTHESIS_TIMEOUT_SECONDS` | no | `30` | Deadline for one synthesis, retries included |
-| `MAX_RESULTS_PER_SOURCE` | no | `3` | Results requested from each source |
+| `MAX_RESULTS_PER_SOURCE` | no | `3` | Upper bound for results requested from each source |
 | `MAX_PARALLEL_SOURCES` | no | `3` | Semaphore bound on concurrent source tasks |
 | `MAX_QUESTION_LENGTH` | no | `500` | Longest accepted question, in characters |
 | `WIKIPEDIA_SEARCH` | no | `fulltext` | `fulltext` \| `opensearch` — see below |
 | `DATABASE_URL` | no | — (unset) | PostgreSQL DSN for the cache and session store |
-| `PERSIST_SESSIONS` | no | `true` | Set `false` to run without touching the database |
+| `PERSIST_SESSIONS` | no | `true` | Set `false` to skip session writes; a configured cache still uses the database |
 
 The full list lives in `.env.example`. **Never commit a real `.env`.**
 
@@ -314,9 +314,10 @@ pip-audit -r requirements.txt
   lines are `asyncpg` error branches that need a database to fail in a way the
   doubles cannot reproduce. Seven of the 357 are PostgreSQL integration tests
   that skip — with the reason printed — when no database is reachable, so the
-  suite stays green offline; the clean-clone reproduction
-  (`artefacts/reproduction-codespaces-bfec78.txt`) recorded them as
-  349 passed + 7 skipped on a machine whose database was unreachable.
+  suite stays green offline. The current 357-test suite recorded 350 passed
+  and 7 skipped without PostgreSQL. The earlier clean-clone reproduction
+  (`artefacts/reproduction-codespaces-bfec78.txt`) recorded 349 passed and
+  7 skipped at commit `6f5407d`, before the additional test was added.
 - Every test runs offline: the `ai` module and the HTTP layer are mocked
   (`respx` for `httpx`). The suite must pass with the network cable pulled.
 - Offline is **enforced, not merely intended**: an autouse fixture in
@@ -370,7 +371,7 @@ pip-audit -r requirements.txt
 └── README.md
 ```
 
-All eight phases are merged. The report is 13 pages, the deck is 11 frames,
+All eight phases are merged. The report is 10 pages, the deck is 11 frames,
 and every number in both is traceable to `artefacts/bench.json`, a test run,
 or the container.
 
@@ -406,9 +407,9 @@ properties of the design or of the supplied code. The two *defects* the
 benchmark found are not listed here because they are fixed — they are written up
 under [What the benchmark found](#what-the-benchmark-found).
 
-None of these is hidden from the caller: anything that can affect a run is
-reported in that run's diagnostics, and a degraded answer the user was told
-about still exits 0.
+These are the measured limits and remaining gaps at submission. Source failures
+are reported in run diagnostics, but some validation and configuration gaps
+below are not detected automatically.
 
 - The concurrency win does not reach the user. Retrieval runs 1.67x faster
   concurrently, but synthesis costs about 8 s per question against retrieval's
@@ -435,7 +436,22 @@ about still exits 0.
   larger of its own jittered backoff and the provider's instruction. What
   remains is anticipation: the first call still discovers the quota by being
   refused, because the application keeps no per-provider token bucket of its
-  own.
+  own. The parser reads retry hints in exception *text*; an HTTP `Retry-After`
+  header alone is not inspected.
+- Cache-key normalization strips edge punctuation. Distinct questions such as
+  `C` and `C#` therefore share a key, so a cached result for one can be reused
+  for the other. Disable cache for such queries with `--no-cache` until the key
+  policy is corrected.
+- Answer validation checks citation structure but permits an empty answer with
+  no citations. Such a provider response can currently be reported as success;
+  the caller should treat an empty answer as unusable.
+- `MAX_RESULTS_PER_SOURCE` is a ceiling, while the CLI still defaults to three
+  results. If the ceiling is set below three, pass an explicit `--max-results`
+  value within that ceiling; the default `ask` and `demo` requests otherwise
+  fail validation.
+- The per-source deadline covers the fetch and its retries, but cache lookup
+  and storage sit outside it. A slow database can therefore make retrieval
+  exceed the configured per-source duration.
 - **The free tier is 20 syntheses per day, per model, and a demo costs 5.** The
   allowance is per model, so a spent day can be worked around by pointing
   `LLM_MODEL` at a model whose bucket is untouched — which is how the Phase 7

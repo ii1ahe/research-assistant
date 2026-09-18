@@ -9,7 +9,7 @@
 % contents):  pdflatex report.tex && pdflatex report.tex
 % =====================================================================
 
-\documentclass[11pt,a4paper]{article}
+\documentclass[10pt,a4paper]{article}
 
 % ===== EARLY MACROS (must come before configuration) =================
 \usepackage[dvipsnames]{xcolor}
@@ -19,12 +19,11 @@
 \newcommand{\phh}[1]{\textcolor{ph}{\textit{#1}}}
 
 % ===== CONFIGURATION =================================================
-% Fill \teamname. Members are listed by GitHub handle. Everything else is
-% final.
-\newcommand{\teamname}{\phh{team name}}
+% Descriptive team label; members are listed by GitHub handle.
+\newcommand{\teamname}{Async Research Assistant Team}
 \newcommand{\topicchoice}{Topic 4 --- Async Research Assistant}
 \newcommand{\member}[2]{\textbf{#1} (#2)}  % name, GitHub handle
-\newcommand{\reportdate}{\today}
+\newcommand{\reportdate}{2026-09-18}
 \newcommand{\repolink}{\url{https://github.com/ii1ahe/research-assistant}}
 
 % ===== course meta (rarely changes) ==================================
@@ -34,7 +33,7 @@
 \newcommand{\semester}{Spring 2026}
 
 % ===== PACKAGES ======================================================
-\usepackage[margin=2.2cm,headheight=15pt]{geometry}
+\usepackage[margin=2cm,headheight=15pt]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[final,protrusion=true,expansion=false]{microtype}
@@ -46,6 +45,7 @@
 \usepackage{ragged2e}
 \usepackage{enumitem}
 \usepackage[parfill]{parskip}
+\setlength{\parskip}{1.5pt}
 \usepackage{listings}
 \usepackage[most]{tcolorbox}
 \usepackage{titlesec}
@@ -59,6 +59,7 @@
 \emergencystretch=3em
 \hbadness=10000
 \hfuzz=2pt
+\linespread{0.96}
 
 \hypersetup{
   colorlinks=true,
@@ -83,8 +84,8 @@
   {\large\bfseries\color{accent}}{\thesubsection}{0.5em}{}
 % Tighter vertical rhythm than the template default: the report runs long and
 % the template's own target is 8-10 pages.
-\titlespacing*{\section}{0pt}{1.4ex plus .3ex minus .2ex}{0.8ex}
-\titlespacing*{\subsection}{0pt}{1.1ex plus .2ex minus .1ex}{0.5ex}
+\titlespacing*{\section}{0pt}{1.05ex plus .2ex minus .1ex}{0.6ex}
+\titlespacing*{\subsection}{0pt}{0.8ex plus .1ex minus .05ex}{0.4ex}
 
 \newcommand{\ans}[1]{\rule[-2pt]{#1}{0.5pt}}
 \let\ph\phh
@@ -155,10 +156,9 @@
 We built \textbf{Researcher}, a command-line research assistant that takes one natural-language
 question, retrieves evidence from Wikipedia, arXiv and the open web \emph{concurrently}, and
 returns a single answer with numbered citations pointing back at the sources it actually used.
-Each source is an independent task with its own deadline, run under an
-\texttt{asyncio.Semaphore}, so a slow or dead source costs one citation rather than the whole
-run; the answer is synthesised once through the supplied AI module, validated structurally, and
-stored in PostgreSQL with a cache of retrieval results.
+Each source fetch has its own deadline, so a slow or dead source costs one
+citation rather than the whole run; the answer is synthesised once through the supplied AI module,
+validated structurally, and stored in PostgreSQL with a cache of retrieval results.
 The headline concurrency number is \textbf{1.67$\times$}: retrieval for five questions fell from
 4.83\,s to 2.89\,s with three sources in flight --- 92\,\% of the 1.83$\times$ ceiling the
 slowest single source imposes.
@@ -198,19 +198,18 @@ therefore publishes no port; an API would add an authentication surface, a story
 clients, and a lifecycle none of which this topic asks for. It makes \textbf{no answer-quality
 claim}: it verifies that an answer is \emph{internally consistent}, never that its sources
 support its claims (Section~\ref{sec:limits}). And it offers \textbf{no second opinion} --- one
-provider, one model --- because an ensemble would triple the quota cost of a demo run, which on a
-free tier is the binding constraint (Section~\ref{sec:politeness}).
+provider, one model --- an ensemble would triple the quota cost of a demo run, the binding
+constraint on a free tier (Section~\ref{sec:politeness}).
 
 The inputs are a question, a set of source names and a results-per-source limit; the output is a
-rendered answer, a numbered source list, a per-source retrieval report, and a process exit
-status. The last is load-bearing: the program distinguishes ``answered'' from ``answered but
-incomplete'' from ``no usable answer'' from ``you invoked it wrong'', because a script wrapping
-this tool needs that distinction and a single non-zero code would erase it.
-Table~\ref{tab:exitcodes} specifies it.
+rendered answer, a numbered source list, a per-source retrieval report, and a process exit status
+(Table~\ref{tab:exitcodes}). The last is load-bearing: the program distinguishes ``answered'' from
+``answered but incomplete'' from ``no usable answer'' from ``you invoked it wrong'', because a
+script wrapping this tool needs that distinction and a single non-zero code would erase it.
 
 \begin{table}[htbp]
 \centering
-\small
+\footnotesize
 \caption{Exit statuses. Zero is returned for a disclosed partial answer, because a run that loses
 one source has still done useful work.}
 \label{tab:exitcodes}
@@ -233,23 +232,21 @@ supplies two things: source fetchers (\texttt{fetch\_wikipedia}, \texttt{fetch\_
 \texttt{fetch\_web}) returning a list of \texttt{Source} records, and \texttt{synthesize}, which
 takes a question and a list of sources and returns an \texttt{AnswerWithCitations}.
 
-We run on \textbf{Gemini}, via the supplied \texttt{GeminiLLM} provider, on
-\texttt{gemini-3.8-flash}, with Tavily for web search and the key-free Wikipedia and arXiv
-endpoints for the rest. Two facts about that choice are worth recording because they cost us
-time. First, the providers in \texttt{ai/providers/google.py} fall back to
-\texttt{gemini-2.0-flash}, which is retired --- every 2.x model returns HTTP~404, so the
-application configures the model explicitly rather than relying on the supplied default.
-Second, Gemini's 3.x models emit \emph{reasoning} tokens that count against the same
-\texttt{max\_output\_tokens} budget as the answer, so a small token cap yields an empty or
-truncated completion rather than an error; the synthesis budget has to accommodate the reasoning
-before the answer begins.
+We run on \textbf{Gemini} via the supplied \texttt{GeminiLLM} provider on
+\texttt{gemini-3.8-flash}, with Tavily for web search and key-free Wikipedia and arXiv for the
+rest. Two facts about that choice are worth recording. First, the providers in
+\texttt{ai/providers/google.py} fall back to \texttt{gemini-2.0-flash}, which is retired --- every
+2.x model returns HTTP~404, so the application configures the model explicitly rather than relying
+on the supplied default. Second, Gemini's 3.x models emit \emph{reasoning} tokens that count
+against the same \texttt{max\_output\_tokens} budget as the answer, so the synthesis budget must
+leave room for the reasoning before the answer begins.
 
 \paragraph{One documented divergence.} The supplied \texttt{ai.sources.fetch\_wikipedia} cannot
 answer a natural-language question. It searches with the MediaWiki \texttt{opensearch} API, which
 prefix-matches the \emph{entire} query against article \emph{titles}. Measured:
 
 \begin{center}
-\small
+\footnotesize
 \begin{tabular}{@{}llr@{}}
 \toprule
 \textbf{Query sent} & \textbf{Matching mode} & \textbf{Titles returned} \\
@@ -261,9 +258,9 @@ prefix-matches the \emph{entire} query against article \emph{titles}. Measured:
 \end{tabular}
 \end{center}
 
-Multi-word queries match nothing at all, so no query-rewriting heuristic recovers this --- a
-keyword-derivation scheme was our first idea and it does not work either, because
-\texttt{photosynthesis main stages} already is the keyword derivation. Since \texttt{ai/} is
+Multi-word queries match nothing, so no query-rewriting heuristic recovers this --- keyword
+derivation was our first idea and fails too, because \texttt{photosynthesis main stages} already
+is the derivation. Since \texttt{ai/} is
 immutable, \texttt{researcher/services/wikipedia.py} replaces the \emph{search step only},
 using the MediaWiki \texttt{list=search} full-text endpoint, and keeps the supplied summary
 endpoint and the supplied \texttt{Source} shape. The setting
@@ -280,14 +277,14 @@ is deliberate, documented in the module docstring, and reversible by configurati
 The system is a layered modular monolith with a flat package layout: \texttt{ai/} and
 \texttt{researcher/} sit side by side at the repository root. ADR-001 records why ---
 \texttt{ai/} must be importable as a top-level package because the contract fixes it there, and a
-flat layout also means the stock \texttt{python:3.14.7-slim} image works with a plain
-\texttt{COPY} and a \texttt{WORKDIR}, with no \texttt{pip install .} and no packaging step in the
-container. The application is 4\,494 lines across 25 source files; the layering rule is enforced
+flat layout means the stock \texttt{python:3.14.7-slim} image works with a plain
+\texttt{COPY} and a \texttt{WORKDIR}, with no \texttt{pip install .} and no packaging step. The application is 4\,681 lines across 25 source files; the layering rule is enforced
 by import direction rather than by tooling, so a lower layer never imports from a higher one.
 
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[
+  scale=0.85, transform shape,
   font=\footnotesize,
   box/.style={draw=accent, rounded corners=2pt, fill=soft, align=center,
               inner sep=4pt, minimum height=7mm, text width=26mm},
@@ -346,7 +343,7 @@ not a base class (Section~\ref{sec:oop}).}
 
 \begin{table}[htbp]
 \centering
-\small
+\footnotesize
 \caption{The modules that carry the design, and the single responsibility each owns.}
 \label{tab:modules}
 \begin{tabularx}{\textwidth}{@{}lrX@{}}
@@ -378,8 +375,8 @@ Three decisions carry most of the design.
 
 \paragraph{Structural typing at the seams, inheritance nowhere.} The two storage seams ---
 \texttt{SourceCacheStore} and \texttt{SessionRepository} --- are \texttt{typing.Protocol}
-classes, and the code depends on the protocol rather than on a concrete implementation. We chose
-protocols over abstract base classes deliberately and for a testability reason: an
+classes, and the code depends on the protocol rather than on a concrete implementation. Protocols beat
+abstract base classes for a testability reason: an
 \texttt{ABC} imposes a nominal relationship, so a test double either inherits from the real
 implementation or the type checker objects. A \texttt{Protocol} is satisfied structurally, which
 means \texttt{storage/memory.py} is a genuine second implementation that the production code
@@ -391,10 +388,9 @@ with the code and an implementation that agrees with the interface.
 model with \texttt{extra="forbid"} --- \texttt{ResearchRequest}, \texttt{Source},
 \texttt{SourceOutcome}, \texttt{RetrievalResult}, \texttt{ResearchResult},
 \texttt{ResearchSession}. There are no naked dictionaries in the application's own interfaces.
-Frozen models give us immutability for free, and \texttt{extra="forbid"} means a typo in a
-keyword argument is an error at construction rather than a silently ignored field --- which, in
-a system whose failure modes are mostly ``a source quietly returned nothing'', is worth a great
-deal. One deliberate exception is \texttt{AnswerWithCitations}, which is the supplied module's
+Frozen models give immutability for free, and \texttt{extra="forbid"} makes a typo in a
+keyword argument an error at construction rather than a silently ignored field --- valuable in a
+system whose failure modes are mostly ``a source quietly returned nothing''. One deliberate exception is \texttt{AnswerWithCitations}, which is the supplied module's
 type and is therefore validated but not replaced.
 
 \paragraph{One composition root.} \texttt{bootstrap.py} is the only module that names a concrete
@@ -406,19 +402,16 @@ is assembled once, in one readable place, rather than resolved at each use site.
 Two smaller abstractions earn their keep. \texttt{RetryPolicy} in
 \texttt{services/resilience.py} separates \emph{whether} to retry from \emph{what} is being
 retried, so the same policy covers HTTP fetches and model calls with different settings
-(\texttt{max\_attempts}=3, exponential backoff from 0.5\,s capped at 8\,s, full jitter, and
-timeouts retried for fetches but not for synthesis, where a retry cannot help --- the deadline
-wraps the whole call, so a retried synthesis is guaranteed to fail again). And
-\texttt{SourceOutcome} models a per-source retrieval as a value that carries either the sources
-or the reason it failed; the orchestrator's \texttt{gather} therefore never raises for an
-expected failure, and ``source X is unavailable'' becomes data the renderer can print rather
-than an exception that unwinds the run.
+(\texttt{max\_attempts}=3, exponential backoff from 0.5\,s capped at 8\,s, full jitter). And
+\texttt{SourceOutcome} models a per-source retrieval as a value carrying either the sources or
+the reason it failed, so ``source X is unavailable'' becomes data the renderer prints rather than
+an exception that unwinds the run.
 
 \subsection{Data flow: one question, end to end}
 
 A request enters at \texttt{cli.py}, which parses and validates before any I/O: an unknown source
-name, a question that is empty or over \texttt{max\_question\_length}, or a missing credential
-for the selected provider is rejected here with exit~2. \texttt{bootstrap.py} then builds the
+name, an empty or over-long question, or a missing credential for the selected provider is
+rejected here with exit~2. \texttt{bootstrap.py} then builds the
 object graph --- settings, a shared \texttt{httpx} client, the AI service, the cache over a
 PostgreSQL store, and the session repository --- and \texttt{ResearchService.research} asks the
 orchestrator for sources. The orchestrator canonicalises the query once, so two questions
@@ -445,8 +438,8 @@ report.
 
 The work per question is a fan-out with no dependencies: three sources, each an independent
 network round trip, none needing another's output. That is the ideal shape for \texttt{asyncio}
---- the tasks are I/O-bound and the parallelism is data-independent, so threads would add
-preemption and locking for no benefit. The whole application is single-threaded.
+--- I/O-bound, data-independent tasks, where threads would add preemption and locking for no
+benefit. The whole application is single-threaded.
 
 Two design points matter more than the choice of library. First, \textbf{the bound is a
 \texttt{Semaphore}, not a bigger gather.} Every source task acquires a slot on
@@ -470,7 +463,7 @@ the full end-to-end path.
 
 \begin{table}[htbp]
 \centering
-\small
+\footnotesize
 \caption{Measured against live Wikipedia, arXiv, Tavily and Gemini, five sample questions,
 \texttt{max\_results\_per\_source}=3. Retrieved 2026-09-16; raw output in
 \texttt{artefacts/bench.json}.}
@@ -495,9 +488,8 @@ $t_1, t_2, t_3$, sequential execution takes $\sum t_i$ and concurrent execution 
 $\max t_i$, so the best any schedule can achieve is $\sum t_i / \max t_i$ --- which depends
 entirely on how uneven the sources are. For this source mix the ceiling is 1.83$\times$, so the
 measured 1.67$\times$ is \textbf{92\,\% of the achievable maximum}; the gap is scheduling
-overhead and the cache lookups preceding each fetch. A mix with more even latencies would show a
-larger ratio and a mix with one dominant source almost none, which is why we report the ceiling
-beside the number.
+overhead and the cache lookups preceding each fetch. A more even mix would show a larger ratio and a mix with one dominant source almost none ---
+which is why the ceiling is reported beside the number.
 
 The end-to-end row is the finding that matters, and it is the opposite of flattering. Retrieval
 was 4.83\,s of a 43.4\,s run --- about 11\,\% --- and the rest is synthesis, one sequential model
@@ -526,9 +518,8 @@ provider's quota is. What it does now, since the measurement below, is react to 
 --- the provider's own retry instruction is honoured instead of ignored.
 
 The free tier for the configured model permits \textbf{20 generation requests per day, per
-model}, and a demo run costs five syntheses --- so three runs exhaust the model's bucket. When
-the bucket ran out, the provider answered with a payload that named both the limit and the
-remedy:
+model}, and a demo run costs five syntheses --- three runs exhaust the bucket. When it ran out,
+the provider answered with a payload naming both the limit and the remedy:
 
 \begin{lstlisting}[style=python,numbers=none,caption={The provider's own words, abridged. The
 hint is precise, and until the fix below our policy ignored all of it.},captionpos=b]
@@ -536,22 +527,21 @@ hint is precise, and until the fix below our policy ignored all of it.},captionp
                           Please retry in 21.9s
 \end{lstlisting}
 
-Our retry policy then waited a full-jitter backoff of at most 0.5\,s between three attempts, so
-every attempt landed inside the same throttle window: a throttle the provider described as
-recoverable in 22 seconds became a lost question that failed in under a second, with three
-attempts spent and a 30-second deadline unused. The delay the provider asked for was roughly
-forty times our backoff ceiling.
+Our retry policy then waited a full-jitter backoff of at most 0.5\,s between attempts, so every
+attempt landed inside the same throttle window: a throttle the provider described as recoverable
+in 22 seconds became a lost question that failed in under a second, with three attempts spent and
+a 30-second deadline unused.
 
 Honouring it was not a one-line change, and the reason is a decision we would defend separately:
 \texttt{services/ai\_service.py} \emph{deliberately discards} the provider's raw payload when it
 translates a failure, so upstream error text can never reach a log or a user. The consequence is
-that classification is the last place the \texttt{Retry-After} value exists --- so that is where
-it is now parsed. A new \texttt{UpstreamRateLimitError} carries the parsed delay (a number,
+that classification is the last place the \emph{textual retry hint} exists --- so that is where
+it is now parsed. An HTTP \texttt{Retry-After} header without the hint in the exception message
+is not read. A new \texttt{UpstreamRateLimitError} carries the parsed delay (a number,
 never the payload text it came from), and the retry policy waits for the larger of its own
 jittered backoff and the provider's instruction, uncapped by \texttt{max\_backoff} and bounded
-instead by the operation's deadline. A throttle that names no parseable delay is still
-classified, and still retried on the ordinary backoff. The payload itself still never reaches a
-log or a user --- a test asserts that the measured payload's text does not appear in the message.
+instead by the operation's deadline. A throttle that names no parseable delay is still classified, and still retried on the ordinary
+backoff; a test asserts that the measured payload's text never appears in a message.
 What remains for production is a token bucket that anticipates a quota instead of discovering
 it through the first refused call.
 
@@ -561,7 +551,7 @@ it through the first refused call.
 \subsection{Wrapping the AI module}
 
 Everything that can fail in a third-party call is dealt with in \texttt{services/ai\_service.py},
-so no other layer has to know what a provider exception looks like. Four things happen there.
+so no other layer has to know what a provider exception looks like.
 
 \paragraph{Failure classification.} The supplied \texttt{ProviderError} is coarse --- a missing
 package, a missing credential and a network fault all raise the same type. The service inspects
@@ -575,7 +565,7 @@ is dropped on purpose --- a security posture as much as a UX one, since the supp
 quote upstream response text verbatim. Section~\ref{sec:politeness} shows the cost honestly: the
 dropped payload is exactly where the retry hint lived.
 
-\paragraph{Timeouts with per-call-type retry semantics.} Per-source fetches are bounded by
+\paragraph{Timeouts with per-call-type retry semantics.} Fetches are bounded by
 \texttt{per\_source\_timeout\_seconds} and \emph{are} retried on timeout, because a search that
 has not answered in ten seconds might answer in twelve. Synthesis is bounded separately by
 \texttt{synthesis\_timeout\_seconds} and is \emph{not} retried on timeout, because the deadline
@@ -612,9 +602,9 @@ The trace, in the order the layers see it:
         with a safe message, and the provider's hint is discarded along with the payload.
   \item The orchestrator converts it into a \texttt{SourceOutcome} carrying a failure reason.
         Synthesis for that question has no sources to work from, so it is reported unanswered.
-  \item The run continues. The other three questions answered normally, the CLI printed which
-        ones failed, and the process exited~1 --- the exit status distinguishing ``some questions
-        failed'' from ``the program broke''.
+  \item The run continues: the other three questions answered normally, the CLI printed which
+        failed, and the process exited~1 --- the status distinguishing ``some questions failed''
+        from ``the program broke''.
 \end{enumerate}
 
 What went right is that the failure was contained and legible: one question was lost, not the
@@ -634,11 +624,10 @@ the length cap is enforced, and a credential the selected provider requires is c
 with a clear message instead of after a timeout with a provider error. Configuration errors
 raise \texttt{ConfigurationError} and exit~2.
 
-\texttt{validate\_answer} handles the \emph{model's} output and is the mirror image: it assumes
-the model may be wrong and checks the structure it was supposed to produce. Together the two
-validate everything crossing a trust boundary in either direction. What we deliberately do
-\emph{not} do is validate that a source supports a claim attached to it --- the core limitation,
-and Section~\ref{sec:limits}.
+\texttt{validate\_answer} handles the \emph{model's} output and checks citation structure. The
+current check also accepts an empty answer with no citations; that is an input-contract gap, not
+a successful synthesis. Neither check establishes that a source supports a claim
+(Section~\ref{sec:limits}).
 
 % =====================================================================
 \section{Storage \& Caching}
@@ -667,10 +656,10 @@ constrained to the Python enumeration whose values they hold: duplicating a Pyth
 is validated against the model on read, so a bad value surfaces as a \texttt{StorageError}
 rather than as a wrong answer.
 
-Migrations are discovered from the filesystem, recorded by filename with a checksum, and that
-checksum is verified on every later start --- so they are append-only, and editing a file that
-has already been applied is refused rather than silently skipped. Every statement is idempotent,
-so a partially applied migration can be re-run safely. The schema is applied automatically at
+Migrations are discovered from the filesystem, recorded by filename with a checksum verified on
+every later start, so they are append-only: editing an already-applied file is refused rather
+than silently skipped, and every statement is idempotent, so a partially applied migration can be
+re-run safely. The schema is applied automatically at
 startup, which is why \texttt{migrations/} had to be in the container image
 (Section~\ref{sec:docker}).
 
@@ -679,14 +668,14 @@ startup, which is why \texttt{migrations/} had to be in the container image
 The cache is a cache-aside read in front of every source fetch. The policy is:
 
 \begin{itemize}[leftmargin=1.4em,itemsep=0.15em]
-  \item \textbf{Keyed on the canonical query}, not the raw one --- so two questions differing
-        only in case or whitespace share an entry, which is what makes a re-run cheap.
+  \item \textbf{Keyed on the canonical query}, not the raw one --- two questions differing only
+        in case or whitespace share an entry, which makes a re-run cheap.
   \item \textbf{TTL of \texttt{cache\_ttl\_seconds}} (default 86\,400\,s, one day), stored as an
         absolute \texttt{expires\_at} rather than an age, so expiry does not depend on any
         clock agreeing about when the row was written.
   \item \textbf{A hit reports \texttt{attempts=0}}, which distinguishes ``this came from the
-        cache'' from ``this succeeded on the first try'' in the per-source report. Without that
-        distinction a cached run and a fast network look identical in the output.
+        cache'' from ``this succeeded on the first try'' --- without it a cached run and a fast
+        network look identical in the output.
   \item \textbf{The cache is never authoritative.} A miss is a normal path, not a degradation,
         and a storage failure on the read path is logged and treated as a miss rather than
         failing the run --- a broken cache must not take the application down with it.
@@ -700,9 +689,9 @@ The cache is a cache-aside read in front of every source fetch. The policy is:
 \begin{findingbox}
 \texttt{persistence\_enabled} is \emph{derived}, not stored: it is the conjunction of
 \texttt{persist\_sessions} and a present DSN. Tests that inject an in-memory store must still set
-a DSN or the session write is silently skipped --- guessing otherwise cost four failing tests
-during this phase. The lesson generalises: a flag that can be set inconsistently with the state
-it describes is a flag that will be.
+a DSN or the session write is silently skipped --- guessing otherwise cost four failing tests.
+The lesson generalises: a flag that can be set inconsistently with the state it describes is a
+flag that will be.
 \end{findingbox}
 
 % =====================================================================
@@ -711,10 +700,10 @@ it describes is a flag that will be.
 \subsection{Strategy and coverage}
 
 \texttt{pytest}, 357 tests, 96\,\% statement coverage over \texttt{researcher/},
-6\,347 lines of test code against 4\,615 lines of application code. Coverage is measured over
-the application package only, and the figure is reported because it is real rather than because
-it is a target: two modules sit below 100\,\% deliberately, and the reason is always a line that
-can only execute when a third-party library misbehaves in a way we cannot provoke.
+6\,375 lines of test code against 4\,681 lines of application code. Coverage is measured over
+the application package only, and reported because it is real rather than a target: two modules
+sit below 100\,\% deliberately, each missing only lines that execute when a third-party library
+misbehaves in ways we cannot provoke.
 
 The suite has three tiers, and the tiers are the design.
 
@@ -725,8 +714,8 @@ database, against \texttt{storage/memory.py} and fakes.
 autouse fixture in \texttt{tests/conftest.py} patches \texttt{socket.socket.connect} and refuses
 any address that is not loopback, private or link-local. It exists because of a real escape: the
 Phase~6 Wikipedia change left five tests patching a fetcher that was no longer being called, so
-they passed while quietly reaching the live API. Those tests were green and wrong, which is the
-worst state a test can be in. Private ranges are permitted because the PostgreSQL tests need
+they passed while quietly reaching the live API --- green and wrong, the worst state a test can
+be in. Private ranges are permitted because the PostgreSQL tests need
 them --- including under Compose, where the database is at \texttt{172.18.0.2}, which is how the
 guard's first implementation (a fixed list of three loopback strings) was found too narrow.
 \texttt{tests/test\_offline\_guard.py} tests the guard itself, in both directions.
@@ -739,7 +728,7 @@ configured --- so a contributor without a database still gets a green suite.
 
 \begin{table}[htbp]
 \centering
-\small
+\footnotesize
 \caption{Four tests that earned their place by finding something.}
 \label{tab:tests}
 \begin{tabularx}{\textwidth}{@{}lX@{}}
@@ -763,7 +752,7 @@ configured --- so a contributor without a database still gets a green suite.
 \end{tabularx}
 \end{table}
 
-Two testing habits are worth naming because they changed the code. First, \emph{tests assert
+Two testing habits changed the code. First, \emph{tests assert
 refusals as often as successes}: the public-error-message test plants a fake API key in the
 environment, forces a validation failure, and asserts the key does \emph{not} appear in the
 resulting message. Second, \emph{a test that cannot fail is a liability}, and the correct
@@ -779,9 +768,9 @@ synthesis-deadline regression test is written to hang.
 \texttt{Dockerfile} is a two-stage build on \texttt{python:3.14.7-slim}. The builder installs
 runtime and test dependencies into \texttt{/install} with \texttt{--prefix}, and the runtime
 stage copies that prefix and the repository, creates a non-root \texttt{appuser}, hands it
-ownership of \texttt{/app}, and drops to it. There is no \texttt{EXPOSE} and no published port,
-which is a direct consequence of ADR-006 --- this project has no HTTP API --- and is called out
-in a comment in the file so that its absence reads as a decision rather than an oversight. The
+ownership of \texttt{/app}, and drops to it. There is no \texttt{EXPOSE} and no published port --- a direct
+consequence of ADR-006, this project has no HTTP API --- and a comment in the file calls that
+absence out so it reads as a decision rather than an oversight. The
 image runs the application as a module (\texttt{python -m researcher demo}), not as an installed
 console script, which is what the flat layout buys.
 
@@ -804,23 +793,24 @@ missed and all of which are fixed:
         fixed list of three strings; under Compose the database is at \texttt{172.18.0.2}, so
         seven PostgreSQL tests errored with ``the test suite tried to reach the network''. The
         guard now tests the address with \texttt{ipaddress}, permitting loopback, private and
-        link-local ranges and refusing public ones --- which is the rule we had meant to write
-        the first time.
+        link-local ranges and refusing public ones --- the rule we had meant to write the first
+        time.
   \item \textbf{\texttt{postgres:18.6-alpine} exited 1.} PostgreSQL 18 moved to
         major-version-specific data directories and refuses data at
         \texttt{/var/lib/postgresql/data}; the volume must be mounted at
-        \texttt{/var/lib/postgresql}. The published image tag was correct and the documented
+        \texttt{/var/lib/postgresql} --- the published image tag was correct and the documented
         mount point was not.
 \end{enumerate}
 
 Verification, as opposed to assertion: 16/16 smoke tests pass \emph{inside the image} with no
 credentials, no network and no quota consumed; the full 357-test suite passes inside Compose
-against a real PostgreSQL with \textbf{zero skips}; and the demo answers end to end, writing a
-real session row from inside the container. The README records the exact commands and the date
+against a real PostgreSQL with \textbf{zero skips}; the demo answers end to end, writing a real
+session row from inside the container. The README records the exact commands and the date
 they were verified.
 
 The clean-clone reproduction on a second machine — a fresh GitHub Codespace —
-is recorded in \texttt{artefacts/reproduction-codespaces-bfec78.txt}: 349 passed with the seven
+is recorded in \texttt{artefacts/reproduction-codespaces-bfec78.txt}: at earlier commit
+\texttt{6f5407d}, 349 passed with seven
 PostgreSQL tests skipped, because the Codespace's Docker-in-Docker bridge drops
 container-to-container traffic. The diagnosis is in the artefact, as is its second finding:
 an unreachable database cost sixty seconds per attempt — the driver's default connect timeout
@@ -831,15 +821,15 @@ an unreachable database cost sixty seconds per attempt — the driver's default 
 Configuration is a frozen \texttt{pydantic-settings} model read from the environment and a
 \texttt{.env} file. Two properties are worth naming. It uses \texttt{env\_ignore\_empty}, so
 \texttt{TAVILY\_API\_KEY=} means ``not configured'' rather than ``configured with an empty
-string'' --- without it the value arrives as \texttt{''}, which is falsy but not \texttt{None},
-and every \texttt{is None} check downstream would wrongly conclude a credential is present. And
+string'' --- without it the value arrives as \texttt{''}, falsy but not \texttt{None}, and every
+\texttt{is None} check downstream would wrongly conclude a credential is present. And
 it validates credentials \emph{presence} at startup but never logs their values;
 \texttt{config.\_describe} reports a field location and a reason but never Pydantic's captured
 input, because those inputs are routinely API keys.
 
 \begin{table}[htbp]
 \centering
-\small
+\footnotesize
 \caption{Settings that change behaviour, with their bounds. \texttt{LLM\_MODEL} also selects the
 provider's per-model quota bucket, which on the free tier is the binding constraint on demo
 runs.}
@@ -851,18 +841,18 @@ runs.}
 \texttt{LLM\_PROVIDER} & \texttt{anthropic} & enum & Provider, and which credential is required. \\
 \texttt{LLM\_MODEL} & \texttt{None} & --- & Falls back to the provider's default; selects the quota bucket. \\
 \texttt{MAX\_PARALLEL\_SOURCES} & 3 & 1--16 & Semaphore width; the politeness bound. \\
-\texttt{PER\_SOURCE\_TIMEOUT\_SECONDS} & 10.0 & $>0$ & Deadline per fetch, and per retry attempt. \\
+\texttt{PER\_SOURCE\_TIMEOUT\_SECONDS} & 10.0 & $>0$ & Fetch deadline, retries included; cache waits excluded. \\
 \texttt{SYNTHESIS\_TIMEOUT\_SECONDS} & 30.0 & $>0$ & Deadline for one synthesis, retries included. \\
-\texttt{MAX\_RESULTS\_PER\_SOURCE} & 3 & 1--20 & Results requested per source. \\
+\texttt{MAX\_RESULTS\_PER\_SOURCE} & 3 & 1--20 & Upper bound on requested results per source. \\
 \texttt{CACHE\_TTL\_SECONDS} & 86\,400 & $\geq 0$ & Cache lifetime; 0 disables reuse in practice. \\
 \texttt{WIKIPEDIA\_SEARCH} & \texttt{fulltext} & enum & Selects the documented search divergence. \\
 \texttt{DATABASE\_URL} & \texttt{None} & DSN & Enables persistence; absent means \texttt{skipped}. \\
-\texttt{PERSIST\_SESSIONS} & \texttt{true} & bool & Set false to run without touching the database. \\
+\texttt{PERSIST\_SESSIONS} & \texttt{true} & bool & False skips session writes; cache still uses a configured database. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-The two timeout settings are separate for a reason that a defect made concrete. They were
+The two timeout settings are separate for a reason a defect made concrete. They were
 originally one knob, and sharing it made two different concerns invisible: raising the fetch
 budget to accommodate a slow search provider silently bought synthesis time as well, and
 lowering it to fail fast on a dead host silently began killing synthesis. Measured against the
@@ -876,7 +866,7 @@ else. Two settings, two deadlines.
 
 These are ordered by how much they would change the system, not by how easy they are to fix.
 
-\begin{enumerate}[leftmargin=1.6em,itemsep=0.3em]
+\begin{enumerate}[leftmargin=1.6em,itemsep=0.15em]
   \item \textbf{Answer correctness is not verified --- this is the core limitation.}
         \texttt{validate\_answer} establishes internal consistency and nothing more: that the
         reference numbers exist, are unique, and point where they claim to. A fluent,
@@ -885,21 +875,19 @@ These are ordered by how much they would change the system, not by how easy they
         partial results are surfaced rather than smoothed over. \emph{Future work:} a grounding
         check between each claim and its cited source.
 
-  \item \textbf{The retry policy cannot recover from a rate limit.} Measured: the provider asked
-        for 21.9\,s while the policy waits a jittered $\leq$0.5\,s, so all three attempts land
-        inside the same window. Section~\ref{sec:politeness} sets out what a fix requires --- a
-        \texttt{Retry-After}-carrying error raised where the payload still exists, and a policy
-        that waits for the larger of its backoff and the provider's instruction.
-        \emph{Future work:} that, plus a token bucket per provider --- the current bound reacts to
-        nothing.
+  \item \textbf{The retry policy reacts to throttles but cannot anticipate them.} Measured: the
+        provider once asked for 21.9\,s while the policy waited a jittered $\leq$0.5\,s, so all
+        three attempts landed inside the same window. Honouring the textual retry hint
+        (Section~\ref{sec:politeness}) fixed the reaction; what remains is anticipation.
+        \emph{Future work:} a token bucket per provider --- the current bound reacts to nothing.
 
   \item \textbf{Retrieved web content is untrusted input fed to a language model.} Snippets come
         from arbitrary pages and are interpolated into the synthesis prompt, so a hostile page
-        can carry text aimed at the model rather than the reader. We do structural work only: the
-        prompt instructs the model to answer from the numbered sources and not to invent them,
-        and we validate the shape of the result. We cannot validate that a source supports the
-        claim attached to it. \emph{Future work:} delimit retrieved text unambiguously as data,
-        strip instruction-shaped markup, and add an entailment check.
+        can carry text aimed at the model rather than the reader. We do structural work only ---
+        the prompt instructs the model to answer from the numbered sources, and we validate the
+        shape of the result --- and cannot validate that a source supports the claim attached to
+        it. \emph{Future work:} delimit retrieved text unambiguously as data, strip
+        instruction-shaped markup, and add an entailment check.
 
   \item \textbf{The concurrency win does not reach the user.} 1.67$\times$ on retrieval is
         1.00$\times$ end to end, because synthesis is 89\,\% of wall-clock time and is one
@@ -929,9 +917,9 @@ These are ordered by how much they would change the system, not by how easy they
         and is tested, but nothing calls it on a schedule. \emph{Future work:} a retention job or
         a database-side scheduled task.
 
-  \item \textbf{Dependencies are pinned but not scanned.} Pinning gives reproducible builds;
-        nothing checks those pins against known vulnerabilities. \emph{Future work:}
-        \texttt{pip-audit} in CI plus automated update pull requests.
+  \item \textbf{Dependencies are pinned and manually scanned.} The committed
+        \texttt{artefacts/pip-audit.txt} found no known vulnerabilities on 17 September 2026.
+        \emph{Future work:} run the scan in CI and automate update pull requests.
 \end{enumerate}
 
 The single thing we would do differently is ordering, not design: \textbf{build the benchmark in
@@ -954,13 +942,12 @@ imported and never modified, so its behaviour is auditable against the original 
 The Architecture Decision Records in \texttt{docs/architecture.md} carry the reasoning behind the
 choices this report argues for: the flat layout, PostgreSQL for both persistence concerns,
 Protocol-based storage interfaces, the bounded-concurrency model, and the decision not to build an
-HTTP API.
-\texttt{docs/security.md} records the security posture and the gaps, checked against the running
-system rather than asserted.
+HTTP API. \texttt{docs/security.md} records the security posture and the gaps, checked against the
+running system rather than asserted.
 
 \begin{table}[htbp]
 \centering
-\small
+\footnotesize
 \caption{AI-tool disclosure. Every entry is a task where the tool's output was verified against
 the code or the running system before it was accepted.}
 \label{tab:ai}
@@ -972,7 +959,7 @@ Claude (Anthropic) & Scaffolding, test-suite construction, refactoring, and draf
     documentation and this report. Verified by running the tests, the container and the
     benchmark, and by reading every generated module. \\
 GitHub Copilot & Not used. \\
-Other & None. \\
+OpenAI Codex & Final documentation audit and consistency corrections; source and build outputs checked. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -1008,30 +995,17 @@ architectural decisions, and any error remaining in this document, are the autho
 \appendix
 \section{Reproducing the benchmark}
 
-The full procedure is in \texttt{README.md}; this is the short form.
+The full procedure is in \texttt{README.md}. The default benchmark makes ten measured
+synthesis calls and two warm-up calls, plus any retries; it needs live credentials
+and can consume provider quota. This version has no retrieval-only mode.
 
-\begin{lstlisting}[style=python,numbers=none,caption={Reproducing Table~\ref{tab:bench} from a
-clean checkout.},captionpos=b]
+\begin{lstlisting}[style=python,numbers=none,basicstyle=\ttfamily\scriptsize]
 # 1. Dependencies and a database
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-cp .env.example .env        # then edit .env: LLM_PROVIDER=gemini, LLM_MODEL, keys
-
-# 2. Retrieve (no model calls, so no quota is spent) -- the
-#    1.67x retrieval row of Table 4 comes from this mode.
-python scripts/bench.py --mode retrieval --repeat 1
-
-# 3. Full run (5 questions x 2 sweeps x 1 synthesis = 10 model calls)
-python scripts/bench.py --repeat 1
-
-# 4. Both modes write artefacts/bench.json and print a report. A run
-#    that could not answer every question in both sweeps withholds
-#    the synthesis and end-to-end rows and exits 1, by design.
+cp .env.example .env        # edit: LLM_PROVIDER=gemini, LLM_MODEL, keys
+# 2. Full benchmark: 5 questions x 2 modes + 2 warm-ups
+python scripts/bench.py --pause 10 --json artefacts/bench-reproduction.json
 \end{lstlisting}
-
-Cost note, because it determines whether the numbers reproduce at all: the free tier allows
-\textbf{20 generation requests per day, per model}, and the full benchmark costs ten. Running
-step~2 first is therefore not just cheaper --- it is what lets the retrieval row be re-measured
-after the day's quota is spent, since retrieval consumes no quota at all.
 
 \end{document}

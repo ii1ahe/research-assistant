@@ -1,29 +1,27 @@
 <!--
-  Members are listed by GitHub handle. Before handing this in:
-    - swap the handles for full names if the submission form wants them
-    - fill _<Team Name>_ and _<YYYY-MM-DD>_ (the date you send the package)
-  Then create the final tag on main and push it:
-    git tag -a v1.0-final -m "Final submission" && git push origin v1.0-final
+  Members are listed by GitHub handle. The separate one-page PDF must be
+  signed by all three members; printed full names belong on that form.
+  The final tag must point at the reviewed submission commit on main.
 -->
 
 # Contribution Statement
 
-**Team:** _<Team Name>_
+**Team:** Async Research Assistant Team
 **Topic:** Topic 4 — Async Research Assistant
 **Repository:** [https://github.com/ii1ahe/research-assistant](https://github.com/ii1ahe/research-assistant)
 **Final tag:** `v1.0-final`
-**Submission date:** _<YYYY-MM-DD>_
+**Submission date:** 2026-09-18
 
 ---
 
 ## Submission type: three members
 
-`git shortlog -sn main` reports 13 commits by two authors — 12 by `ii1ahe`,
-1 by `fatimekazimli`. `Elmin995`'s contribution is peer review, which
+Git history attributes the application commits to `ii1ahe` and one
+clean-clone reproduction commit to `fatimekazimli`. `Elmin995`'s contribution is peer review, which
 produces no commits and so cannot appear in `shortlog`; it is recorded on
 the repository as approvals and inline comments on PRs #11 and #12. The
-shares below are stated from what is checkable on GitHub, not invented to
-look even: the application is one person's code, and the other two members'
+approximate work shares below include review and are not commit percentages:
+the application is one person's code, and the other two members'
 parts — the clean-clone reproduction and the peer review — are exactly what
 their briefs assigned them.
 
@@ -36,7 +34,7 @@ README say "we", the ordinary editorial convention for a team document.
 
 **Owned (sole author of these files / PRs):**
 
-Application — `researcher/`, 25 source files, 4 615 lines:
+Application — `researcher/`, 25 source files, 4 681 lines:
 
 - `researcher/models.py` (371), `researcher/validation.py` (358),
   `researcher/config.py` (316), `researcher/errors.py` (175) — the typed
@@ -45,7 +43,7 @@ Application — `researcher/`, 25 source files, 4 615 lines:
 - `researcher/services/ai_service.py` (525), `resilience.py` (233),
   `http_client.py` (48) — the only boundary that calls `ai/`, the retry,
   backoff and timeout policy around it, and the throttling translation that
-  honours the provider's Retry-After.
+  honours retry delays named in provider exception text (not HTTP headers).
 - `researcher/services/orchestrator.py` (240), `cache.py` (199),
   `wikipedia.py` (190) — bounded concurrent retrieval with per-source
   deadlines and partial results; cache-aside reads and writes; a replacement
@@ -58,7 +56,7 @@ Application — `researcher/`, 25 source files, 4 615 lines:
 - `researcher/bootstrap.py` (277), `cli.py` (362), `rendering.py` (196) — the
   composition root, argument parsing, exit statuses and terminal output.
 
-Verification — 19 test files, 6 347 lines:
+Verification — 19 test files, 6 375 lines:
 
 - `tests/` — **357 tests, 96 % coverage** over `researcher/`.
 - `tests/conftest.py` — including the autouse `no_internet` fixture that makes
@@ -74,7 +72,7 @@ Infrastructure and documentation:
 - `pyproject.toml`, `pytest.ini`, `requirements*.txt`, `.env.example`,
   `.gitignore`
 - `README.md`; `docs/architecture.md` (six ADRs); `docs/security.md`
-- `report/report.tex` and the compiled `report/report.pdf` (13 pages, pdfLaTeX)
+- `report/report.tex` and the compiled `report/report.pdf` (10 pages, pdfLaTeX)
 - `slides/slides.tex` and the compiled `slides/slides.pdf` (11 frames, beamer)
 
 **PRs:** [#1](https://github.com/ii1ahe/research-assistant/pull/1),
@@ -121,7 +119,7 @@ covered.
 
 **PRs:** [#12](https://github.com/ii1ahe/research-assistant/pull/12).
 
-**Approximate share:** ≈10 % — 1 of 13 commits; the rest of her part is the
+**Approximate work share:** ≈10 % — one recorded commit; the rest of her part is the
 Brief B quiz answers and her defense slot.
 
 ---
@@ -141,7 +139,7 @@ Brief B quiz answers and her defense slot.
   the artefact asking that the connect-timeout finding become a follow-up
   fix — which the final polish PR carries.
 
-**Approximate share:** ≈10 % — 0 of 13 commits, all of it review; his
+**Approximate work share:** ≈10 % — zero commits, all of it review; his
 defense slot covers it.
 
 ---
@@ -171,7 +169,7 @@ were rejected or rewritten.
 | `report/report.tex`, `slides/slides.tex` | Claude (Anthropic) | Drafted the prose and typeset both documents from `templates/`. Every number is traceable to `artefacts/bench.json`, a test run, or the container — I re-ran the suite (357 passed, 96 %) and checked the module line counts against `wc -l` before submitting. |
 | `artefacts/reproduction-codespaces-bfec78.txt` | Claude (Anthropic) | Drafted from the machine's actual output — versions, commands, counts — which I checked against my Codespace run before committing. |
 | — | GitHub Copilot | Not used. |
-| — | Any other assistant | None. |
+| `report/`, `slides/`, submission documentation | OpenAI Codex | Checked the final documents against source code, test evidence, and compiled PDFs; corrected inconsistencies. |
 
 We affirm that **every line of code in the repository can be defended** by
 at least one member during the oral defense. "The AI wrote it" is not an

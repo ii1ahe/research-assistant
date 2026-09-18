@@ -184,7 +184,7 @@ class Settings(BaseSettings):
     #: PostgreSQL DSN. When unset, sessions are not persisted and the status is
     #: reported as ``skipped`` rather than as a failure.
     database_url: str | None = None
-    #: Set false to run without touching the database even when a DSN is set.
+    #: Set false to skip session writes; a configured cache still uses the database.
     persist_sessions: bool = True
 
     # --- Normalisation -----------------------------------------------------
