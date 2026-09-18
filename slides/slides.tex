@@ -13,8 +13,8 @@
 \documentclass[aspectratio=169,11pt]{beamer}
 
 % ===== CONFIGURATION =================================================
-% Descriptive team label; the member names are the GitHub handles.
-\newcommand{\teamname}{Async Research Assistant Team}
+% No official team name; the member names are the GitHub handles.
+\newcommand{\teamname}{}
 \newcommand{\topicchoice}{Topic 4 --- Async Research Assistant}
 \newcommand{\memberone}{\texttt{@ii1ahe}}
 \newcommand{\membertwo}{\texttt{@fatimekazimli}}
@@ -108,7 +108,7 @@
     \rule{0.7\textwidth}{0.6pt}\\[0.4em]
     {\Huge\bfseries\color{accent} \topicchoice}\\[0.4em]
     \rule{0.7\textwidth}{0.6pt}\\[1.2em]
-    {\large \ifdefempty{\teamname}{\memberone}{\teamname}}\\[0.6em]
+    \ifdefempty{\teamname}{}{{\large \teamname}\\[0.6em]}
     {\normalsize \memberone \enspace \membertwo \enspace \memberthree}\\[1cm]
     {\footnotesize\itshape Final Project Defense -- \defensedate}\\[0.4em]
     {\footnotesize\texttt{\repolink}}
@@ -395,7 +395,7 @@ $ docker compose run --rm app python -m researcher ask \
     \vspace{1cm}
     {\Huge\bfseries\color{accent} Questions?}\\[1.2em]
     \rule{0.5\textwidth}{0.6pt}\\[1.2em]
-    {\large \ifdefempty{\teamname}{\memberone}{\teamname}}\\[0.6em]
+    {\large \topicchoice}\\[0.6em]
     {\normalsize \texttt{\repolink}}\\[1cm]
     {\footnotesize\itshape ``We can walk through any file in the repo.''}
   \end{center}

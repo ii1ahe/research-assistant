@@ -6,7 +6,7 @@
 
 # Contribution Statement
 
-**Team:** Async Research Assistant Team
+**Team:** No official name
 **Topic:** Topic 4 — Async Research Assistant
 **Repository:** [https://github.com/ii1ahe/research-assistant](https://github.com/ii1ahe/research-assistant)
 **Final tag:** `v1.0-final`
