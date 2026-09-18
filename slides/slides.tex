@@ -293,8 +293,8 @@ $ docker compose run --rm app python -m researcher ask \
   \begin{itemize}\setlength\itemsep{0.2em}
     \item The per-source report shows \texttt{attempts=0} on a cache hit, and names the source
       that failed on a partial run.
-    \item The session row is written \emph{from inside the container}; the full 357-test suite
-      passes there with \textbf{zero skips}.
+    \item Session row written \emph{from inside the container}; the suite runs there too, with
+      only the 8 database tests skipping --- the image reaches no database.
   \end{itemize}
 
   \vspace{0.1em}
@@ -308,8 +308,8 @@ $ docker compose run --rm app python -m researcher ask \
   \column{0.54\textwidth}
   \textbf{Coverage \& shape}
   \begin{itemize}\setlength\itemsep{0.3em}
-    \item 357 tests; 96\,\% coverage over \texttt{researcher/}
-    \item 6\,375 lines of tests vs 4\,681 of application code
+    \item 380 tests; 96\,\% coverage over \texttt{researcher/}
+    \item 6\,764 lines of tests vs 4\,864 of application code
     \item Provided \texttt{ai/} smoke tests: \textcolor{ok}{\textbf{16/16 passing}}
     \item All offline --- \emph{enforced}, not intended
   \end{itemize}
@@ -338,9 +338,9 @@ $ docker compose run --rm app python -m researcher ask \
   \begin{itemize}\setlength\itemsep{0.25em}
     \item \textbf{Answer correctness is not verified.} A fluent, correctly-cited, \emph{wrong}
       answer passes every check we have --- we validate structure, never support.
-    \item \textbf{Textual retry hints are honoured, not anticipated.} The provider's
-      ``retry in 21.9s'' message is parsed and waited; HTTP header-only hints are not --- and the
-      first call still discovers a spent quota by being refused.
+    \item \textbf{Retry hints are honoured, not anticipated.} The provider's ``retry in 21.9s''
+      message, and a \texttt{Retry-After} header when the message names no delay, are parsed and
+      waited --- but the first call still discovers a spent quota by being refused.
     \item \textbf{Concurrency stops at the question boundary} --- the demo's five questions run
       sequentially, and \texttt{MAX\_PARALLEL\_SOURCES} bounds sources within a question only.
   \end{itemize}

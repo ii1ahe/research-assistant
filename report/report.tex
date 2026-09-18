@@ -192,11 +192,11 @@ three and is deliberately narrow about it. It answers \emph{one} question per in
 \emph{three} named source families, and it never presents a claim it cannot attach to a numbered
 source.
 
-The scope boundary is set by what the system refuses to do, which is the more interesting list.
-It has \textbf{no HTTP API} (ADR-006) --- the deliverable is a CLI program and the container
-therefore publishes no port; an API would add an authentication surface, a story for simultaneous
-clients, and a lifecycle none of which this topic asks for. It makes \textbf{no answer-quality
-claim}: it verifies that an answer is \emph{internally consistent}, never that its sources
+The scope boundary is set by what the system refuses to do. It has \textbf{no HTTP API} (ADR-006)
+--- the deliverable is a CLI program and the container publishes no port; an API would add an
+authentication surface, concurrency semantics and a lifecycle this topic does not ask for. It
+makes \textbf{no answer-quality claim}: it verifies that an answer is \emph{internally
+consistent}, never that its sources
 support its claims (Section~\ref{sec:limits}). And it offers \textbf{no second opinion} --- one
 provider, one model --- an ensemble would triple the quota cost of a demo run, the binding
 constraint on a free tier (Section~\ref{sec:politeness}).
@@ -351,19 +351,19 @@ not a base class (Section~\ref{sec:oop}).}
 \textbf{Module} & \textbf{LOC} & \textbf{Responsibility} \\
 \midrule
 \texttt{models.py} & 371 & The frozen Pydantic models every layer exchanges. \\
-\texttt{validation.py} & 358 & Normalising input; validating a synthesised answer. \\
+\texttt{validation.py} & 390 & Normalising input; validating a synthesised answer. \\
 \texttt{config.py} & 316 & Typed settings, derived flags, safe error messages. \\
-\texttt{errors.py} & 142 & The exception taxonomy and the exit-status mapping. \\
-\texttt{services/orchestrator.py} & 240 & Bounded concurrent retrieval; one outcome per source. \\
-\texttt{services/ai\_service.py} & 467 & The only place \texttt{ai/} is called; timeouts, retries, translation. \\
-\texttt{services/cache.py} & 185 & Cache-aside reads and writes around the storage seam. \\
-\texttt{services/resilience.py} & 201 & The retry policy and its backoff schedule. \\
+\texttt{errors.py} & 181 & The exception taxonomy and the exit-status mapping. \\
+\texttt{services/orchestrator.py} & 249 & Bounded concurrent retrieval; one outcome per source. \\
+\texttt{services/ai\_service.py} & 599 & The only place \texttt{ai/} is called; timeouts, retries, translation. \\
+\texttt{services/cache.py} & 199 & Cache-aside reads and writes around the storage seam. \\
+\texttt{services/resilience.py} & 233 & The retry policy and its backoff schedule. \\
 \texttt{storage/interfaces.py} & 146 & The two \texttt{Protocol}s and the error contract. \\
-\texttt{storage/postgres.py} & 253 & \texttt{asyncpg} implementation; migrations applied at startup. \\
+\texttt{storage/postgres.py} & 293 & \texttt{asyncpg} implementation; migrations applied at startup. \\
 \texttt{storage/memory.py} & 125 & In-memory double; the fast test tier runs against it. \\
 \texttt{core/researcher.py} & 256 & The use case: retrieve, synthesise, validate, persist. \\
-\texttt{bootstrap.py} & 266 & The composition root --- the only module naming concrete classes. \\
-\texttt{cli.py}, \texttt{rendering.py} & 530 & Argument parsing, exit statuses, terminal rendering. \\
+\texttt{bootstrap.py} & 284 & The composition root --- the only module naming concrete classes. \\
+\texttt{cli.py}, \texttt{rendering.py} & 584 & Argument parsing, exit statuses, terminal rendering. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -535,9 +535,12 @@ a 30-second deadline unused.
 Honouring it was not a one-line change, and the reason is a decision we would defend separately:
 \texttt{services/ai\_service.py} \emph{deliberately discards} the provider's raw payload when it
 translates a failure, so upstream error text can never reach a log or a user. The consequence is
-that classification is the last place the \emph{textual retry hint} exists --- so that is where
-it is now parsed. An HTTP \texttt{Retry-After} header without the hint in the exception message
-is not read. A new \texttt{UpstreamRateLimitError} carries the parsed delay (a number,
+that classification is the last place the \emph{retry hint} exists --- so that is where it is now
+parsed: in the exception text first, then in a \texttt{Retry-After} header, since the providers
+re-raise with \texttt{from} and the SDK exception's public \texttt{.response.headers} survives
+on \texttt{\_\_cause\_\_} --- no SDK import, no private attribute. An HTTP-date rather than
+delta-seconds is discarded, because converting one means trusting the local clock against the
+server's. A new \texttt{UpstreamRateLimitError} carries the parsed delay (a number,
 never the payload text it came from), and the retry policy waits for the larger of its own
 jittered backoff and the provider's instruction, uncapped by \texttt{max\_backoff} and bounded
 instead by the operation's deadline. A throttle that names no parseable delay is still classified, and still retried on the ordinary
@@ -609,10 +612,9 @@ The trace, in the order the layers see it:
 
 What went right is that the failure was contained and legible: one question was lost, not the
 run; the user was told which; and the exit status distinguished ``some questions failed'' from
-``the program broke''. What went wrong is entirely in steps 3--5: a condition the provider
-described as recoverable in 22 seconds was treated as unrecoverable in one, because our
-classification is one-dimensional --- it asks whether a failure is the \emph{kind} that can be
-retried, never \emph{when}.
+``the program broke''. What went wrong is entirely in steps 3--5: a condition the provider called
+recoverable in 22 seconds was treated as unrecoverable in one, because classification asks
+whether a failure is the \emph{kind} that can be retried, never \emph{when}.
 
 \subsection{Input validation and exit statuses}
 
@@ -624,10 +626,13 @@ the length cap is enforced, and a credential the selected provider requires is c
 with a clear message instead of after a timeout with a provider error. Configuration errors
 raise \texttt{ConfigurationError} and exit~2.
 
-\texttt{validate\_answer} handles the \emph{model's} output and checks citation structure. The
-current check also accepts an empty answer with no citations; that is an input-contract gap, not
-a successful synthesis. Neither check establishes that a source supports a claim
-(Section~\ref{sec:limits}).
+\texttt{validate\_answer} handles the \emph{model's} output. It rejects an empty or
+whitespace-only answer outright: a truncated response or a safety filter would otherwise be
+reported as a success, because an answer with no prose tends to have no citations either, and an
+empty citation list is vacuously consistent. It then checks citation structure --- every index
+positive, in range, unique, and pointing at the source in that position. Content without
+citations is still accepted, as a worse answer rather than a missing one. Neither check
+establishes that a source supports a claim (Section~\ref{sec:limits}).
 
 % =====================================================================
 \section{Storage \& Caching}
@@ -640,8 +645,8 @@ in PostgreSQL, and \texttt{migrations/001\_initial\_schema.sql} is the whole of 
 \texttt{source\_cache} stores one row per cached lookup, keyed on the entire cache key --- source,
 canonical query, provider, result limit and schema version --- rather than a hash of those
 fields. That is deliberate for operability: with the components in separate columns an operator
-can \emph{see} what is cached and why a given lookup missed, which a digest column would hide.
-The write path is \texttt{INSERT \ldots ON CONFLICT} against exactly that key, so the upsert is
+can \emph{see} what is cached and why a lookup missed, which a digest column would hide. The
+write path is \texttt{INSERT \ldots ON CONFLICT} against exactly that key, so the upsert is
 enforced by the database rather than by a read-then-write. Three \texttt{CHECK} constraints
 mirror the model's numeric bounds, and \texttt{expires\_at >= fetched\_at} is checked because a
 row that expires before it was fetched is a bug in the writer, not a user-visible state.
@@ -669,7 +674,10 @@ The cache is a cache-aside read in front of every source fetch. The policy is:
 
 \begin{itemize}[leftmargin=1.4em,itemsep=0.15em]
   \item \textbf{Keyed on the canonical query}, not the raw one --- two questions differing only
-        in case or whitespace share an entry, which makes a re-run cheap.
+        in case or whitespace share an entry, which makes a re-run cheap. It strips edge
+        punctuation only, never a character \emph{inside} a word, so \texttt{C} and \texttt{C\#}
+        are separate keys: over-normalising costs a silent wrong \emph{hit}, under-normalising
+        only a \emph{miss}.
   \item \textbf{TTL of \texttt{cache\_ttl\_seconds}} (default 86\,400\,s, one day), stored as an
         absolute \texttt{expires\_at} rather than an age, so expiry does not depend on any
         clock agreeing about when the row was written.
@@ -699,11 +707,11 @@ flag that will be.
 
 \subsection{Strategy and coverage}
 
-\texttt{pytest}, 357 tests, 96\,\% statement coverage over \texttt{researcher/},
-6\,375 lines of test code against 4\,681 lines of application code. Coverage is measured over
-the application package only, and reported because it is real rather than a target: two modules
-sit below 100\,\% deliberately, each missing only lines that execute when a third-party library
-misbehaves in ways we cannot provoke.
+\texttt{pytest}, 380 tests, 96\,\% statement coverage over \texttt{researcher/},
+6\,764 lines of test code against 4\,864 lines of application code. Coverage is measured over
+the application package only, and reported because it is real rather than a target. Every module
+is covered; the thinnest is \texttt{storage/session\_repository.py} at 82\,\%, where the uncovered
+lines are \texttt{asyncpg} error branches that need a database to fail the way the doubles cannot.
 
 The suite has three tiers, and the tiers are the design.
 
@@ -752,11 +760,10 @@ configured --- so a contributor without a database still gets a green suite.
 \end{tabularx}
 \end{table}
 
-Two testing habits changed the code. First, \emph{tests assert
-refusals as often as successes}: the public-error-message test plants a fake API key in the
-environment, forces a validation failure, and asserts the key does \emph{not} appear in the
-resulting message. Second, \emph{a test that cannot fail is a liability}, and the correct
-response to one is to raise its cost of failure rather than delete it --- which is why the
+Two testing habits changed the code. First, \emph{tests assert refusals as often as successes}:
+the public-error-message test plants a fake API key, forces a validation failure, and asserts the
+key does \emph{not} appear in the message. Second, \emph{a test that cannot fail is a liability},
+and the response to one is to raise its cost of failure rather than delete it --- which is why the
 synthesis-deadline regression test is written to hang.
 
 % =====================================================================
@@ -803,10 +810,11 @@ missed and all of which are fixed:
 \end{enumerate}
 
 Verification, as opposed to assertion: 16/16 smoke tests pass \emph{inside the image} with no
-credentials, no network and no quota consumed; the full 357-test suite passes inside Compose
-against a real PostgreSQL with \textbf{zero skips}; the demo answers end to end, writing a real
-session row from inside the container. The README records the exact commands and the date
-they were verified.
+credentials, no network and no quota consumed, and the rest of the suite passes there too ---
+372 passed and 8 skipped, the skips being the PostgreSQL tests, which have no database to reach
+from inside the image. On the host, against a real PostgreSQL, the suite passes with
+\textbf{zero skips}; the demo answers end to end, writing a real session row from inside the
+container. The README records the exact commands and the date they were verified.
 
 The clean-clone reproduction on a second machine — a fresh GitHub Codespace —
 is recorded in \texttt{artefacts/reproduction-codespaces-bfec78.txt}: at earlier commit
@@ -841,7 +849,7 @@ runs.}
 \texttt{LLM\_PROVIDER} & \texttt{anthropic} & enum & Provider, and which credential is required. \\
 \texttt{LLM\_MODEL} & \texttt{None} & --- & Falls back to the provider's default; selects the quota bucket. \\
 \texttt{MAX\_PARALLEL\_SOURCES} & 3 & 1--16 & Semaphore width; the politeness bound. \\
-\texttt{PER\_SOURCE\_TIMEOUT\_SECONDS} & 10.0 & $>0$ & Fetch deadline, retries included; cache waits excluded. \\
+\texttt{PER\_SOURCE\_TIMEOUT\_SECONDS} & 10.0 & $>0$ & Fetch deadline, retries included. Cache waits sit outside it and are bounded by the same value as the pool's \texttt{command\_timeout}. \\
 \texttt{SYNTHESIS\_TIMEOUT\_SECONDS} & 30.0 & $>0$ & Deadline for one synthesis, retries included. \\
 \texttt{MAX\_RESULTS\_PER\_SOURCE} & 3 & 1--20 & Upper bound on requested results per source. \\
 \texttt{CACHE\_TTL\_SECONDS} & 86\,400 & $\geq 0$ & Cache lifetime; 0 disables reuse in practice. \\
@@ -853,12 +861,11 @@ runs.}
 \end{table}
 
 The two timeout settings are separate for a reason a defect made concrete. They were
-originally one knob, and sharing it made two different concerns invisible: raising the fetch
-budget to accommodate a slow search provider silently bought synthesis time as well, and
-lowering it to fail fast on a dead host silently began killing synthesis. Measured against the
-configured model, synthesis ran at 2.9\,s, 3.9\,s, 6.1\,s and 7.6\,s on a quiet run and then hit
-the shared ten-second ceiling --- roughly one synthesis in six refused on a machine doing nothing
-else. Two settings, two deadlines.
+originally one knob, and sharing it made two concerns invisible: raising the fetch budget to
+accommodate a slow search provider silently bought synthesis time as well, and lowering it to
+fail fast on a dead host silently began killing synthesis. Measured against the configured model,
+synthesis ran at 2.9\,s, 3.9\,s, 6.1\,s and 7.6\,s on a quiet run, then hit the shared ten-second
+ceiling --- roughly one synthesis in six. Two settings, two deadlines.
 
 % =====================================================================
 \section{Limitations \& Future Work}
@@ -877,8 +884,9 @@ These are ordered by how much they would change the system, not by how easy they
 
   \item \textbf{The retry policy reacts to throttles but cannot anticipate them.} Measured: the
         provider once asked for 21.9\,s while the policy waited a jittered $\leq$0.5\,s, so all
-        three attempts landed inside the same window. Honouring the textual retry hint
-        (Section~\ref{sec:politeness}) fixed the reaction; what remains is anticipation.
+        three attempts landed inside the same window. Honouring the retry hint --- from the
+        exception text, and from the response header when the text names no delay
+        (Section~\ref{sec:politeness}) --- fixed the reaction; what remains is anticipation.
         \emph{Future work:} a token bucket per provider --- the current bound reacts to nothing.
 
   \item \textbf{Retrieved web content is untrusted input fed to a language model.} Snippets come
@@ -903,9 +911,8 @@ These are ordered by how much they would change the system, not by how easy they
   \item \textbf{PostgreSQL is configured with \texttt{trust} authentication.} \texttt{pg\_hba.conf}
         is at \texttt{initdb}'s default, so authentication is not performed at all: any process
         that can reach port 5432 connects as any role, including the superuser. The blast radius
-        is bounded rather than accidental --- the server listens only on loopback and the
-        application role is not a superuser --- but the exposure appears the moment
-        \texttt{listen\_addresses} is widened or the port is forwarded.
+        is bounded --- the server listens only on loopback and the application role is not a
+        superuser --- but the exposure appears the moment the port is forwarded.
         \emph{Future work:} \texttt{scram-sha-256}, a real password on the application role, and
         TLS for any remote connection.
 
@@ -939,11 +946,9 @@ over \texttt{researcher/} and \texttt{scripts/}. PostgreSQL 18.6 runs locally, a
 path was verified against \texttt{postgres:18.6-alpine}. The supplied \texttt{ai/} package is
 imported and never modified, so its behaviour is auditable against the original by diff.
 
-The Architecture Decision Records in \texttt{docs/architecture.md} carry the reasoning behind the
-choices this report argues for: the flat layout, PostgreSQL for both persistence concerns,
-Protocol-based storage interfaces, the bounded-concurrency model, and the decision not to build an
-HTTP API. \texttt{docs/security.md} records the security posture and the gaps, checked against the
-running system rather than asserted.
+The six Architecture Decision Records in \texttt{docs/architecture.md} carry the reasoning behind
+the choices this report argues for. \texttt{docs/security.md} records the security posture and the
+gaps, checked against the running system rather than asserted.
 
 \begin{table}[htbp]
 \centering
@@ -964,10 +969,9 @@ OpenAI Codex & Final documentation audit and consistency corrections; source and
 \end{tabularx}
 \end{table}
 
-The AI assistants were used as a tool and not as an authority. The defects in this report were
-found by executing the system --- building the image, running the suite against a real database,
-and benchmarking live APIs --- and each fix was verified by a test that fails without it. All
-architectural decisions, and any error remaining in this document, are the author's.
+The AI assistants were used as a tool, not an authority: the defects here were found by executing
+the system, and each fix was verified by a test that fails without it. All architectural
+decisions, and any error remaining in this document, are the author's.
 
 % =====================================================================
 \section{References}
@@ -995,9 +999,9 @@ architectural decisions, and any error remaining in this document, are the autho
 \appendix
 \section{Reproducing the benchmark}
 
-The full procedure is in \texttt{README.md}. The default benchmark makes ten measured
-synthesis calls and two warm-up calls, plus any retries; it needs live credentials
-and can consume provider quota. This version has no retrieval-only mode.
+The full procedure is in \texttt{README.md}. The default benchmark makes ten measured synthesis
+calls and two warm-ups, plus retries; it needs live credentials and consumes quota, and it has no
+retrieval-only mode.
 
 \begin{lstlisting}[style=python,numbers=none,basicstyle=\ttfamily\scriptsize]
 # 1. Dependencies and a database
