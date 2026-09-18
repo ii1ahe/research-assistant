@@ -35,6 +35,7 @@ from pathlib import Path
 
 from researcher import __version__
 from researcher.bootstrap import Application, bootstrap
+from researcher.config import get_settings
 from researcher.errors import ConfigurationError, InvalidRequestError, StorageError
 from researcher.models import PersistenceStatus, ResearchRequest, ResearchResult, ResultStatus
 from researcher.rendering import render_answer, render_diagnostics, render_summary
@@ -55,7 +56,14 @@ EXIT_USAGE = 2
 #: Canonical source names accepted by ``--sources``.
 SOURCE_CHOICES = SOURCE_NAMES
 
-#: Default result limit per source, matching :class:`~researcher.config.Settings`.
+#: The documented default of ``MAX_RESULTS_PER_SOURCE``.
+#:
+#: The CLI no longer applies a result limit of its own — an omitted
+#: ``--max-results`` resolves to whatever the settings say — because a number
+#: kept here is a second copy of a configurable value, and the two disagree as
+#: soon as the configuration moves. ``scripts/bench.py`` still names it, since
+#: the benchmark drives one fixed configuration and its committed results were
+#: produced under this limit.
 DEFAULT_MAX_RESULTS = 3
 
 #: The supplied question set, relative to the repository root. It ships with the
@@ -113,9 +121,13 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument(
         "--max-results",
         type=int,
-        default=DEFAULT_MAX_RESULTS,
+        default=None,
         metavar="N",
-        help=f"Maximum results to request from each source (default: {DEFAULT_MAX_RESULTS}).",
+        help=(
+            "Maximum results to request from each source. Defaults to the "
+            "configured MAX_RESULTS_PER_SOURCE, which is "
+            f"{DEFAULT_MAX_RESULTS} unless it is set in .env."
+        ),
     )
 
     demo = commands.add_parser("demo", help="Run the five supplied sample questions from data/.")
@@ -287,12 +299,13 @@ async def run(args: argparse.Namespace) -> int:
     Everything resource-owning lives inside the ``async with``, so the pools are
     released on the paths that raise as well as the ones that return.
 
-    Everything the *user* can get wrong is settled before it. The command's
-    inputs are read and built first — the question set is parsed in full, and
-    every request is constructed — so a mistyped ``--sources`` or a malformed
-    data file is exit status 2 with no connection pool opened and no database
-    dialled. Validating inside the ``async with`` would report the same status
-    for the same reason, but only after opening resources to do nothing with.
+    Everything the *user* can get wrong is settled before it. The settings are
+    loaded, and the command's inputs are read and built — the question set is
+    parsed in full, and every request is constructed — so a mistyped
+    ``--sources``, a malformed data file or an invalid environment is exit
+    status 2 with no connection pool opened and no database dialled. Validating
+    inside the ``async with`` would report the same status for the same reason,
+    but only after opening resources to do nothing with.
 
     Raises:
         ConfigurationError: The environment is invalid, a configured database
@@ -303,9 +316,18 @@ async def run(args: argparse.Namespace) -> int:
         async with bootstrap() as application:
             return await _purge(application)
 
+    # Loaded here rather than inside the context manager so that an invalid
+    # environment is still reported before anything is opened, and passed to
+    # ``bootstrap`` so that the limit below and the ceiling that validates it
+    # come from one object — the split between them is what let an ordinary
+    # ``ask`` carry a limit its own configuration refused.
+    settings = get_settings()
     use_cache = not args.no_cache
 
     if args.command == "demo":
+        # No ``--max-results`` on ``demo``: every question it asks follows the
+        # configured ceiling.
+        limit = settings.max_results_per_source
         plan = [
             (
                 question,
@@ -313,21 +335,25 @@ async def run(args: argparse.Namespace) -> int:
                     question.text,
                     question.sources,
                     use_cache=use_cache,
-                    max_results=DEFAULT_MAX_RESULTS,
+                    max_results=limit,
                 ),
             )
             for question in load_demo_questions()
         ]
-        async with bootstrap() as application:
+        async with bootstrap(settings) as application:
             return await _demo(application, plan)
 
+    # ``--max-results`` is unspecified, not defaulted: with no flag the
+    # configured ceiling applies, so the request can never exceed it. An
+    # explicit value still can, and validation still rejects it.
+    limit = args.max_results if args.max_results is not None else settings.max_results_per_source
     request = _build_request(
         args.question,
         args.sources,
         use_cache=use_cache,
-        max_results=args.max_results,
+        max_results=limit,
     )
-    async with bootstrap() as application:
+    async with bootstrap(settings) as application:
         return await _ask(application, request)
 
 

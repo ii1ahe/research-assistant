@@ -34,6 +34,7 @@ import pytest
 
 import researcher.cli as cli
 from researcher import __version__
+from researcher.config import Settings
 from researcher.errors import ConfigurationError, InvalidRequestError, StorageError
 from researcher.models import (
     PersistenceStatus,
@@ -110,15 +111,25 @@ class Opened:
 #: What the ``install`` fixture hands a test.
 Build = Callable[..., "tuple[Recorder, Opened]"]
 
+#: The hermetic settings factory from ``conftest``.
+SettingsFactory = Callable[..., Settings]
+
 
 @pytest.fixture
-def install(monkeypatch: pytest.MonkeyPatch) -> Iterator[Build]:
+def install(monkeypatch: pytest.MonkeyPatch, make_settings: SettingsFactory) -> Iterator[Build]:
     """Return a helper that replaces ``cli.bootstrap`` with a stub.
 
     The stub is a real async context manager, so the ``async with`` in ``run``
     is exercised — including its teardown, which is what makes the interruption
     and broken-pipe cases meaningful.
+
+    ``cli.get_settings`` is replaced too. ``run`` consults it to resolve an
+    omitted ``--max-results`` from the configured ceiling, and without this
+    every test driving ``main`` would read the machine's own ``.env``. The
+    default here is the same valid, unremarkable configuration the rest of the
+    suite uses; a test that cares about the ceiling overrides it.
     """
+    monkeypatch.setattr(cli, "get_settings", make_settings)
 
     def build(
         results: Sequence[ResearchResult] = (),
@@ -169,12 +180,67 @@ def _demo_file(tmp_path: Path, count: int = 2) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def test_ask_defaults_select_every_source_at_the_default_limit() -> None:
+def test_ask_defaults_select_every_source_and_name_no_limit() -> None:
+    """An omitted ``--max-results`` is "unspecified", not a number.
+
+    The parser deliberately does not supply a value: a number here would be the
+    CLI's own copy of a configurable setting, and the two would disagree the
+    moment someone configured ``MAX_RESULTS_PER_SOURCE`` below it.
+    """
     args = cli.build_parser().parse_args(["ask", "why is the sky blue"])
 
     assert args.sources == ",".join(cli.SOURCE_CHOICES)
-    assert args.max_results == cli.DEFAULT_MAX_RESULTS
+    assert args.max_results is None
     assert args.no_cache is False
+
+
+def test_an_omitted_limit_follows_the_configured_ceiling(
+    install: Build, make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ceiling below the old hardcoded default must not break an ordinary ask.
+
+    ``--max-results`` defaulted to three, which is also the *default* of
+    ``MAX_RESULTS_PER_SOURCE`` — so the two agreed until the ceiling was
+    configured lower, at which point every ordinary ``ask`` failed validation
+    with "--max-results 3 exceeds the configured limit of 2" for a limit the
+    user never typed. Omitting the flag means "use the configured ceiling", so
+    the number the request carries is always one the configuration allows.
+    """
+    monkeypatch.setattr(cli, "get_settings", lambda: make_settings(max_results_per_source=2))
+    service, _ = install()
+
+    assert cli.main(["ask", "why is the sky blue"]) == cli.EXIT_OK
+    assert service.requests[0].max_results == 2
+
+
+def test_demo_follows_the_configured_ceiling(
+    install: Build,
+    make_settings: SettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """``demo`` builds its own requests, so it needs the same resolution."""
+    monkeypatch.setattr(cli, "get_settings", lambda: make_settings(max_results_per_source=1))
+    monkeypatch.setattr(cli, "DEMO_DATA", _demo_file(tmp_path))
+    service, _ = install()
+
+    assert cli.main(["demo"]) == cli.EXIT_OK
+    assert [request.max_results for request in service.requests] == [1, 1]
+
+
+def test_an_explicit_limit_above_the_ceiling_is_still_rejected(
+    install: Build, make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ceiling still binds a limit the user actually typed.
+
+    Resolving the *default* from the configuration must not turn into ignoring
+    the ceiling for explicit values, which is the check the resolution exists to
+    stay inside.
+    """
+    monkeypatch.setattr(cli, "get_settings", lambda: make_settings(max_results_per_source=2))
+    install(error=InvalidRequestError("--max-results 5 exceeds the configured limit of 2"))
+
+    assert cli.main(["ask", "why is the sky blue", "--max-results", "5"]) == cli.EXIT_USAGE
 
 
 def test_a_command_is_required() -> None:

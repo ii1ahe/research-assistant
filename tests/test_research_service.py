@@ -229,6 +229,34 @@ async def test_questions_differing_only_in_case_share_a_cache_entry(
     ]
 
 
+async def test_questions_that_differ_by_a_meaningful_character_keep_separate_keys(
+    make_settings: SettingsFactory,
+) -> None:
+    """``C`` and ``C#`` are different questions and must not share sources.
+
+    Edge punctuation is stripped so that trailing decoration cannot split a
+    cache entry. ``#`` is not decoration — it is part of an identifier — and
+    stripping it made a question about the C language serve the sources
+    retrieved for the C# language. The failure is quiet: the answer is
+    synthesised from the wrong sources and cites them correctly, so nothing
+    downstream can tell that the retrieval was for a different question.
+    """
+    ai = StubAIService()
+    service = _service(make_settings(), ai)
+
+    await service.research(_request("what is C"))
+    await service.research(_request("what is C#"))
+
+    # Four fetches, not two: the second question was not served from the first
+    # question's cache entry.
+    assert [query for _, query, _ in ai.fetched] == [
+        "what is C",
+        "what is C",
+        "what is C#",
+        "what is C#",
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Degradation
 # ---------------------------------------------------------------------------

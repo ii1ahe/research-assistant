@@ -69,7 +69,17 @@ _WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s+")
 #: question is meaningful, so "CRISPR-Cas9" must not become "CRISPRCas9".
 #: Unicode dashes and quotes are left alone; they are rare at the edges of a
 #: question, and excluding them keeps the cache key free of ambiguity.
-_EDGE_CHARS: Final[str] = " \t\r\n?!.,;:\"'`()[]{}<>*#-/\\|"
+#:
+#: ``#`` is deliberately **not** stripped. It is not sentence decoration but
+#: part of a name — C#, F#, the ``#include`` directive — so stripping it merged
+#: two genuinely different questions: "what is C#" canonicalised to "what is
+#: c", the same key as "what is C", and the second question was answered from
+#: the first question's sources with nothing downstream able to tell. The two
+#: errors are not symmetric: keeping ``#`` can only cost a cache *miss* on a
+#: question that ends in decorative punctuation ("why?" is unchanged, but
+#: "why#?" would miss), while stripping it can produce a wrong *hit*, which is
+#: silent. When the two disagree, prefer the one that fails loudly.
+_EDGE_CHARS: Final[str] = " \t\r\n?!.,;:\"'`()[]{}<>*-/\\|"
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +205,10 @@ def canonicalize_query(question: str) -> str:
 
     Two questions map to the same cache entry when they differ only in case,
     surrounding whitespace, internal whitespace runs, or trailing punctuation.
-    Word order and wording are preserved: anything more aggressive risks
-    returning one question's cached sources for a different question.
+    Word order, wording and every character inside a word are preserved:
+    anything more aggressive risks returning one question's cached sources for
+    a different question, which is the one failure this function must not have.
+    See :data:`_EDGE_CHARS` for why ``#`` is excluded from the stripped set.
 
     The original question is never replaced by this form. It is used only as
     cache-key material.
@@ -289,22 +301,42 @@ def _check_web_search_available(settings: Settings) -> None:
 
 
 def validate_answer(answer: AnswerWithCitations, sources: Sequence[Source]) -> AnswerWithCitations:
-    """Check that an answer's references are internally consistent.
+    """Check that an answer says something and that its references are consistent.
 
-    Verifies that every citation index is positive, within range, unique, and
-    still points at the source occupying that position. The last check is the
-    important one: the supplied synthesizer fixes each citation to
-    ``sources[index - 1]`` at the moment it builds the answer, so a mismatch
-    means the source list was reordered afterwards and every reference number
-    in the prose now points at the wrong source.
+    Two independent checks, and the first is the weaker-sounding one: the
+    answer text must not be blank. A model can return an empty string — a
+    truncated response, a safety filter, an answer written to a field the
+    synthesizer does not read — and the citation checks below cannot notice,
+    because an answer with no prose tends to have no citations either, and an
+    empty citation list is vacuously consistent. Reporting that as success
+    claims an answer that does not exist, so blankness is refused here.
+
+    The second check verifies that every citation index is positive, within
+    range, unique, and still points at the source occupying that position. The
+    last part is the important one: the supplied synthesizer fixes each
+    citation to ``sources[index - 1]`` at the moment it builds the answer, so a
+    mismatch means the source list was reordered afterwards and every reference
+    number in the prose now points at the wrong source.
+
+    Deliberately *not* checked: an answer that has content but cites nothing.
+    That is a worse answer, not a missing one, and the synthesizer produces it
+    legitimately when the sources do not support a citation — rejecting it
+    would discard something the user can read.
 
     These checks establish internal consistency only. They cannot and do not
     claim that a source actually supports the claim it is attached to.
 
     Raises:
-        InvalidAnswerError: A citation is out of range, duplicated, or points
-            at a source other than the one at its index.
+        InvalidAnswerError: The answer text is empty or whitespace-only, or a
+            citation is out of range, duplicated, or points at a source other
+            than the one at its index.
     """
+    if not answer.answer.strip():
+        raise InvalidAnswerError(
+            "the synthesizer returned an empty answer; there is nothing to report",
+            source="synthesis",
+        )
+
     total = len(sources)
     seen: set[int] = set()
     for citation in answer.citations:

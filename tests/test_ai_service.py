@@ -13,6 +13,7 @@ replaced, so no socket is opened and no key is used.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable
 
@@ -442,6 +443,56 @@ async def test_a_reordered_source_list_is_caught(
         await AIService(make_settings()).synthesize("a question", [_source(1), _source(2)])
 
 
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
+async def test_a_blank_answer_is_rejected(
+    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    """An empty answer is not an answer, however well-formed its citations.
+
+    ``ai.synthesize`` returns whatever the model produced, and a model can
+    produce nothing: a truncated response, a safety filter, or an answer that
+    landed in a field the synthesizer does not read. The result is an
+    ``AnswerWithCitations`` with no prose — and the structural citation check
+    passes trivially, because there are no citations left to be inconsistent.
+    Left alone it is reported as a success, printed as a blank answer, and the
+    CLI exits 0 for a question that was never answered.
+
+    Only the blank case is rejected. An answer that says something but cites
+    nothing is still an answer the user can read, and refusing it would
+    discard work — the same partial-result reasoning the retrieval side uses.
+    """
+
+    def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
+        return AnswerWithCitations(question=question, answer=blank, citations=[])
+
+    monkeypatch.setattr("ai.synthesizer.synthesize", fake)
+
+    with pytest.raises(InvalidAnswerError, match="empty"):
+        await AIService(make_settings()).synthesize("a question", [_source(1)])
+
+
+async def test_an_answer_without_citations_is_still_accepted(
+    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The companion to the test above: the check must not overshoot.
+
+    Rejecting every uncited answer would be a much larger behavior change than
+    the one this fix is for, and would fail answers the synthesizer legitimately
+    produces when the sources do not support a citation.
+    """
+
+    def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
+        return AnswerWithCitations(
+            question=question, answer="The sources do not settle this.", citations=[]
+        )
+
+    monkeypatch.setattr("ai.synthesizer.synthesize", fake)
+
+    answer = await AIService(make_settings()).synthesize("a question", [_source(1)])
+
+    assert answer.answer == "The sources do not settle this."
+
+
 async def test_a_provider_error_during_synthesis_is_translated(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -632,6 +683,46 @@ async def test_a_synthesis_timeout_is_abandoned_rather_than_repeated(
         await service.synthesize("a question", [_source(1)])
 
     assert calls == 1
+
+
+async def test_the_deadline_abandons_the_await_without_stopping_the_thread(
+    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The limit on the deadline, demonstrated rather than asserted.
+
+    ``AIService.synthesize`` documents that a timeout cannot stop the work it
+    timed out on. That is a claim about what the deadline does *not* do, which
+    is exactly the kind that gets written once and never checked — so it is
+    checked here. Hard cancellation would be better, but it is not available:
+    ``ai.synthesize`` is synchronous, ``ai/`` is supplied and immutable, and a
+    thread running a blocking SDK call exposes no handle to cancel it with. The
+    caller stops waiting; the provider keeps working, and keeps billing.
+
+    ``__cause__`` on the timeout names the deadline, not a provider fault;
+    ``UpstreamTimeoutError``'s docstring says so, and this pins the timing that
+    makes the sentence true.
+    """
+    completion: list[float] = []
+    finished = threading.Event()
+
+    def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
+        time.sleep(0.3)
+        completion.append(time.perf_counter())
+        finished.set()
+        return _answer(question, sources)
+
+    monkeypatch.setattr("ai.synthesizer.synthesize", fake)
+
+    service = AIService(make_settings(synthesis_timeout_seconds=0.05))
+    with pytest.raises(UpstreamError, match="deadline"):
+        await service.synthesize("a question", [_source(1)])
+    abandoned_at = time.perf_counter()
+
+    # The caller has given up...
+    assert completion == []
+    # ...and the call it gave up on still finishes, afterwards.
+    assert await asyncio.to_thread(finished.wait, 5.0), "the worker thread never finished"
+    assert completion[0] > abandoned_at
 
 
 async def test_synthesis_is_governed_by_its_own_deadline_not_the_fetch_one(

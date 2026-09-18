@@ -105,7 +105,14 @@ async def open_storage(settings: Settings) -> Storage | None:
         return None
 
     try:
-        storage = await PostgresStorage.connect(settings.database_url)
+        # ``command_timeout`` tracks the source budget: a cache read or write
+        # belongs to a source's retrieval, but sits outside the deadline that
+        # bounds its fetch, so without this a slow database could hold a
+        # retrieval open past the per-source duration the README documents.
+        storage = await PostgresStorage.connect(
+            settings.database_url,
+            command_timeout=settings.per_source_timeout_seconds,
+        )
     except StorageError as exc:
         raise ConfigurationError(
             f"the configured database is not usable ({exc.message}). "

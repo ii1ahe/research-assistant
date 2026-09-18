@@ -151,9 +151,15 @@ class UpstreamTimeoutError(UpstreamError):
 class InvalidAnswerError(ResearcherError):
     """The synthesised answer failed integrity checks.
 
-    Raised when citation indices are non-positive, reference a source that does
-    not exist, or duplicate one another. Structural checks cannot establish
-    factual support, only internal consistency.
+    Raised when the answer text is empty or whitespace-only, or when citation
+    indices are non-positive, reference a source that does not exist, or
+    duplicate one another. Structural checks cannot establish factual support,
+    only internal consistency.
+
+    Not retryable: the same inputs produce the same answer, and the caller has
+    already paid for the retrieval. The run is reported as failed with its
+    sources intact, so the user sees what was retrieved and why no answer
+    followed.
     """
 
     code: ClassVar[str] = "invalid_answer"

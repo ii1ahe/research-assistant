@@ -320,9 +320,69 @@ async def test_connect_bounds_the_pool_open_timeout(monkeypatch: pytest.MonkeyPa
     )
 
     assert opened == [
-        {"min_size": 1, "max_size": 5, "timeout": 10.0},
-        {"min_size": 1, "max_size": 5, "timeout": 2.5},
+        {"min_size": 1, "max_size": 5, "timeout": 10.0, "command_timeout": 10.0},
+        {"min_size": 1, "max_size": 5, "timeout": 2.5, "command_timeout": 10.0},
     ]
+
+
+async def test_connect_bounds_every_statement_the_pool_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cache read sits outside the deadline that bounds the fetch beside it.
+
+    ``AIService.fetch_source`` wraps the fetch and its retries in
+    ``per_source_timeout_seconds``, but the orchestrator consults the cache
+    *before* calling it and stores the result *after*, so neither operation was
+    covered by that deadline — a database that answered slowly held retrieval
+    open past the per-source duration the README documented.
+
+    ``command_timeout`` bounds each statement instead. No new error handling is
+    needed for it: asyncpg raises ``TimeoutError``, which is already in
+    ``DRIVER_ERRORS``, so the failure arrives as a ``StorageError`` and the
+    cache degrades to a miss exactly as it does for any other database fault.
+    """
+    opened: list[dict[str, object]] = []
+
+    async def fake_create_pool(dsn: str, **kwargs: object) -> object:
+        opened.append(kwargs)
+        return object()  # migrate=False keeps connect() from touching the pool
+
+    monkeypatch.setattr("researcher.storage.postgres.asyncpg.create_pool", fake_create_pool)
+
+    await PostgresStorage.connect(
+        "postgresql://researcher@localhost:5432/researcher", migrate=False
+    )
+    await PostgresStorage.connect(
+        "postgresql://researcher@localhost:5432/researcher", migrate=False, command_timeout=2.5
+    )
+
+    assert [kwargs["command_timeout"] for kwargs in opened] == [10.0, 2.5]
+
+
+async def test_the_statement_bound_is_enforced_by_the_driver() -> None:
+    """The test above proves the bound is *passed*; this proves it is *applied*.
+
+    ``command_timeout`` is a driver feature, so nothing offline can settle
+    whether the argument does what the name says. Against a real server it can:
+    a statement that outlasts the bound is abandoned by asyncpg and raised as a
+    ``TimeoutError`` — the class ``DRIVER_ERRORS`` already translates — rather
+    than left running until the database or the connection gives up.
+    """
+    dsn = _resolve_dsn()
+    if not dsn:
+        pytest.skip("no DATABASE_URL configured; set it to run the SQL tests")
+    try:
+        storage = await PostgresStorage.connect(dsn, command_timeout=0.25, migrate=False)
+    except StorageError as exc:
+        pytest.skip(f"PostgreSQL not reachable ({exc})")
+
+    try:
+        pool = storage._pool  # type: ignore[attr-defined]
+        with pytest.raises(TimeoutError):
+            async with pool.acquire() as conn:
+                await conn.fetch("SELECT pg_sleep(5)")
+    finally:
+        await storage.aclose()
 
 
 async def test_postgres_cache_contract(storage: Storage, cleanup: str) -> None:

@@ -18,6 +18,15 @@ already owns the per-source budget, so nothing here needs a second timer — and
 importantly there is no timeout wrapping the *gather*, which is what would let
 one slow source consume the others' time.
 
+That budget covers the fetch and its retries, and deliberately not this
+module's cache work: the lookup below happens *before* ``fetch_source`` is
+called and the store *after* it returns, so neither is inside its clock. The
+database is bounded instead — ``PostgresStorage`` gives every statement a
+``command_timeout`` — so a slow database costs one bounded cache operation and
+then a live fetch, rather than holding the retrieval open indefinitely. The
+ceiling this module actually has is therefore one cache operation plus a full
+fetch, which is what the README states.
+
 **Order is preserved, and that is a correctness property.** The position of a
 source in ``RetrievalResult.sources`` fixes its citation number for the rest of
 the run, so results are reassembled in the order the user selected rather than

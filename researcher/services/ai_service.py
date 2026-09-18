@@ -95,11 +95,13 @@ _THROTTLING_MARKERS = (
     "throttl",
 )
 
-#: Ways providers name the delay they ask us to wait. Google's free tier says
-#: "Please retry in 21.9s"; exception text may also spell out ``Retry-After``.
-#: An HTTP header alone is not read here. Units other than seconds are deliberately not matched: a
-#: value we cannot be sure about is better discarded than misread — the policy
-#: still retries on its own backoff without it.
+#: Ways providers name the delay they ask us to wait *in prose*. Google's free
+#: tier says "Please retry in 21.9s"; a provider may also spell out
+#: ``Retry-After`` in the message text. A delay carried by a real HTTP header
+#: rather than by text is read separately, by :func:`_header_retry_after`.
+#: Units other than seconds are deliberately not matched: a value we cannot be
+#: sure about is better discarded than misread — the policy still retries on
+#: its own backoff without it.
 _RETRY_AFTER_PATTERNS = (
     re.compile(
         r"retry in\s+(?P<delay>\d+(?:\.\d+)?)\s*(?:s\b|secs?\b|seconds?\b)",
@@ -128,25 +130,97 @@ def _retry_after_hint(text: str) -> float | None:
     return None
 
 
+def _delay_from_response(exc: BaseException) -> float | None:
+    """Read a ``Retry-After`` delay off the response an exception carries.
+
+    Duck-typed on two public names — ``.response`` and ``.headers`` — because
+    that is what both SDKs this application can be pointed at expose
+    (``google.genai.errors.APIError``, ``anthropic.APIStatusError``), and
+    because importing either SDK here to say so would make the translation
+    layer depend on the very packages it exists to insulate the rest of the
+    application from. An object without those names simply yields no delay.
+
+    Only delta-seconds are read. ``Retry-After`` is also allowed to be an
+    HTTP-date, and converting one means trusting the local clock; see
+    :func:`_retry_after_hint` for why a value we cannot be sure of is dropped.
+    """
+    try:
+        response = getattr(exc, "response", None)
+        headers = getattr(response, "headers", None)
+        if headers is None:
+            # Not the SDK shape, but an exception carrying its own headers is
+            # cheap to support and costs nothing when it does not exist.
+            headers = getattr(exc, "headers", None)
+        if headers is None:
+            return None
+        # httpx and requests both compare header names case-insensitively; a
+        # plain mapping would not, so both spellings are tried.
+        raw = headers.get("retry-after")
+        if raw is None:
+            raw = headers.get("Retry-After")
+        if raw is None:
+            return None
+        delay = float(str(raw).strip())
+    except Exception:
+        # Deliberately broad. This runs while an exception is already being
+        # handled, and a second failure here would replace the diagnosis with a
+        # traceback about the diagnosis. Nothing in the block above is worth
+        # failing a translation over, so every fault degrades to "no delay".
+        return None
+    if not math.isfinite(delay) or delay < 0:
+        return None
+    return delay
+
+
+def _header_retry_after(exc: BaseException) -> float | None:
+    """Walk the exception chain for a response carrying a ``Retry-After``.
+
+    The supplied providers wrap with ``raise ProviderError(...) from exc``, so
+    the SDK's own exception — and the HTTP response on it — survives as
+    ``__cause__``. That chain is the only route back to the header, and it is a
+    stable one: it is standard Python exception chaining rather than anything
+    private to a provider.
+
+    The walk is bounded by identity, so a chain that loops — which a proxy
+    object or a badly behaved SDK could produce — terminates instead of hanging
+    inside the error path.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        delay = _delay_from_response(current)
+        if delay is not None:
+            return delay
+        current = current.__cause__ if current.__cause__ is not None else current.__context__
+    return None
+
+
 def _translate(exc: ProviderError, *, source: str) -> ResearcherError:
     """Classify a supplied-package failure into this application's taxonomy.
 
     A misconfiguration carries an actionable message that names the missing
     variable and holds nothing sensitive, so it is passed through verbatim.
     A throttle is recognised by its markers and by the delay the provider
-    names — and the delay is parsed out here, while the payload still exists,
-    into :class:`~researcher.errors.UpstreamRateLimitError` so the retry
-    policy can honour it; the raw text itself does not travel. Anything else
+    asks for — parsed out here, while the payload still exists, into
+    :class:`~researcher.errors.UpstreamRateLimitError` so the retry policy can
+    honour it; neither the raw text nor the response travels. Anything else
     may embed a provider payload or a URL, and is replaced with a generic
     message — the original is kept as ``__cause__`` for the traceback, which
     is where diagnostics belong. The same split is used by
     :func:`researcher.storage._driver.translate`.
+
+    The delay is looked for in the message text first and in a ``Retry-After``
+    header only if the text names none, so a provider that states it in prose
+    keeps behaving exactly as it did before the header was read.
     """
     text = str(exc)
     lowered = text.casefold()
     if any(marker in lowered for marker in _MISCONFIGURATION_MARKERS):
         return ConfigurationError(text, source=source)
     hint = _retry_after_hint(text)
+    if hint is None:
+        hint = _header_retry_after(exc)
     if hint is not None or any(marker in lowered for marker in _THROTTLING_MARKERS):
         message = f"{source} is rate-limited"
         if hint is not None:
