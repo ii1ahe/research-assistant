@@ -360,7 +360,8 @@ pip-audit -r requirements.txt
 ├── artefacts/             # benchmark output, as submitted
 ├── docs/
 │   ├── architecture.md    # ADRs, module contracts, phase roadmap
-│   └── security.md        # security posture, gaps, hardening notes
+│   ├── security.md        # security posture, gaps, hardening notes
+│   └── peer-review.md     # what the two PR reviews checked and found
 ├── demo_ai.py             # PROVIDED — AI-layer demo
 ├── Dockerfile             # multi-stage; the image the demo runs from
 ├── compose.yaml           # the application plus its PostgreSQL

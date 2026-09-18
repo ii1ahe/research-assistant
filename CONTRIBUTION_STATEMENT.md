@@ -17,10 +17,11 @@
 ## Submission type: three members
 
 Git history attributes the application commits to `ii1ahe` and one
-clean-clone reproduction commit to `fatimekazimli`. `Elmin995`'s contribution is peer review, which
-produces no commits and so cannot appear in `shortlog`; it is recorded on
-the repository as approvals and inline comments on PRs #11 and #12. The
-approximate work shares below include review and are not commit percentages:
+clean-clone reproduction commit to `fatimekazimli`. `Elmin995`'s contribution
+is peer review: it is recorded on the repository as approvals and inline
+comments on PRs #11 and #12, and in the tree as `docs/peer-review.md`, the
+one commit authored under his name. The approximate work shares below include
+review and are not commit percentages:
 the application is one person's code, and the other two members'
 parts — the clean-clone reproduction and the peer review — are exactly what
 their briefs assigned them.
@@ -127,8 +128,16 @@ Brief B quiz answers and her defense slot.
 
 ## @Elmin995 — peer review, ≈10 %
 
-**Owned:** nothing in the tree — review produces no commits, which is why
-`shortlog` cannot show him.
+**Owned (sole author):**
+
+- `docs/peer-review.md` — the record of the two reviews below: what was
+  checked beyond the diff, the finding raised in each, and what happened to
+  it. Drafted with an AI assistant from the reviews as posted, and every claim
+  in it links back to the review or the inline comment it came from, so the
+  file can be checked line by line against GitHub.
+
+Reviewing is the work; it produces the one commit above and no code, which is
+why `shortlog` shows him once rather than across the application.
 
 **Reviewed:**
 
@@ -140,7 +149,7 @@ Brief B quiz answers and her defense slot.
   the artefact asking that the connect-timeout finding become a follow-up
   fix — which the final polish PR carries.
 
-**Approximate work share:** ≈10 % — zero commits, all of it review; his
+**Approximate work share:** ≈10 % — one recorded commit and two reviews; his
 defense slot covers it.
 
 ---
