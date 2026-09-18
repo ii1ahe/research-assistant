@@ -71,9 +71,11 @@ docker compose run --rm app
 docker compose up -d postgres
 ```
 
-Verified on this machine: the image builds on `python:3.14.7-slim`, the 16
-supplied smoke tests and the full 357-test suite pass inside the container
-(2026-09-17), and the demo answers end to end with its sessions written to the
+Verified on this machine: the image builds on `python:3.14.7-slim`, and the 16
+supplied smoke tests and the full suite pass inside the container — 372 passed,
+8 skipped, the skips being the PostgreSQL integration tests, which have no
+database to reach from inside the image (image rebuilt and suite re-run
+2026-09-18). The demo answers end to end with its sessions written to the
 compose PostgreSQL — `saved session 5b595539-…` in the run log, from a table the
 container itself created (2026-09-16).
 
@@ -308,16 +310,18 @@ pip-audit -r requirements.txt
 
 - Provided AI smoke tests: **16/16 passing**
 - Offline demo: **5/5 questions, exit 0**
-- Application suite: **357 tests, coverage 96%** (target ≥60%). The figure is
+- Application suite: **380 tests, coverage 96%** (target ≥60%). The figure is
   measured over `researcher/` only, and every module in it is covered; the
   thinnest is `storage/session_repository.py` at 82%, where the uncovered
   lines are `asyncpg` error branches that need a database to fail in a way the
-  doubles cannot reproduce. Seven of the 357 are PostgreSQL integration tests
+  doubles cannot reproduce. Eight of the 380 are PostgreSQL integration tests
   that skip — with the reason printed — when no database is reachable, so the
-  suite stays green offline. The current 357-test suite recorded 350 passed
-  and 7 skipped without PostgreSQL. The earlier clean-clone reproduction
+  suite stays green offline. The current 380-test suite recorded 380 passed
+  with a database and 372 passed plus 8 skipped without one (2026-09-18); the
+  same 372+8 is what the rebuilt container reports, where there is no database
+  to reach at all. The earlier clean-clone reproduction
   (`artefacts/reproduction-codespaces-bfec78.txt`) recorded 349 passed and
-  7 skipped at commit `6f5407d`, before the additional test was added.
+  7 skipped at commit `6f5407d`, before the later tests were added.
 - Every test runs offline: the `ai` module and the HTTP layer are mocked
   (`respx` for `httpx`). The suite must pass with the network cable pulled.
 - Offline is **enforced, not merely intended**: an autouse fixture in
@@ -436,22 +440,39 @@ below are not detected automatically.
   larger of its own jittered backoff and the provider's instruction. What
   remains is anticipation: the first call still discovers the quota by being
   refused, because the application keeps no per-provider token bucket of its
-  own. The parser reads retry hints in exception *text*; an HTTP `Retry-After`
-  header alone is not inspected.
-- Cache-key normalization strips edge punctuation. Distinct questions such as
-  `C` and `C#` therefore share a key, so a cached result for one can be reused
-  for the other. Disable cache for such queries with `--no-cache` until the key
-  policy is corrected.
-- Answer validation checks citation structure but permits an empty answer with
-  no citations. Such a provider response can currently be reported as success;
-  the caller should treat an empty answer as unusable.
-- `MAX_RESULTS_PER_SOURCE` is a ceiling, while the CLI still defaults to three
-  results. If the ceiling is set below three, pass an explicit `--max-results`
-  value within that ceiling; the default `ask` and `demo` requests otherwise
-  fail validation.
-- The per-source deadline covers the fetch and its retries, but cache lookup
-  and storage sit outside it. A slow database can therefore make retrieval
-  exceed the configured per-source duration.
+  own. The delay is read from the exception *text* first — every case measured
+  here states it in prose — and, when the text names none, from a `Retry-After`
+  header on the response the SDK exception carries. A header whose value is an
+  HTTP-date rather than delta-seconds is deliberately discarded: converting it
+  means trusting the local clock, and a machine an hour out would wait an hour.
+  Corrected 2026-09-18 for headers; the text path is unchanged.
+- Cache keys still normalize case, internal whitespace runs and a fixed set of
+  *decorative* edge punctuation, so `Why?` and `why` share an entry on purpose.
+  `#` left that set on 2026-09-18: it is part of a name rather than decoration,
+  and stripping it made `what is C#` and `what is C` the same key, so a question
+  about one language was answered from the other's sources. Names that differ by
+  a character still *inside* the set — `Why?` against `Why` — keep sharing a key
+  by design; names that differ by `#` no longer do. Keeping `#` can cost a cache
+  *miss* on a question ending in punctuation, which the wrong *hit* it prevented
+  is worth.
+- Answer validation rejects an empty or whitespace-only synthesized answer as
+  `invalid_answer`, reported as a failed run with its sources intact (exit 1),
+  alongside the citation-structure checks. It deliberately still accepts an
+  answer that has content but cites nothing: that is a worse answer, not a
+  missing one. Corrected 2026-09-18 for the empty case.
+- `MAX_RESULTS_PER_SOURCE` is a ceiling that an explicit `--max-results` must
+  still stay within, and exceeding it is refused with exit 2. Omitting the flag
+  now uses the configured ceiling rather than a hardcoded three, so a ceiling
+  configured below three no longer makes an ordinary `ask` or `demo` fail
+  validation for a limit nobody typed. Corrected 2026-09-18.
+- The per-source deadline covers the fetch and its retries; cache reads and
+  writes sit outside it, because the orchestrator consults the cache before that
+  call and stores the result after. They are bounded separately and at the
+  database instead: every statement carries a `command_timeout` equal to
+  `PER_SOURCE_TIMEOUT_SECONDS`, after which the driver abandons it and the cache
+  degrades to a miss — the same path as any other storage fault. Retrieval's
+  real ceiling is therefore one bounded cache operation plus a full fetch, not
+  the per-source duration alone. Corrected 2026-09-18.
 - **The free tier is 20 syntheses per day, per model, and a demo costs 5.** The
   allowance is per model, so a spent day can be worked around by pointing
   `LLM_MODEL` at a model whose bucket is untouched — which is how the Phase 7
@@ -460,8 +481,12 @@ below are not detected automatically.
   times the end-to-end path can be demonstrated in a day.
 - `ai.synthesize()` is synchronous and calls a blocking SDK. It is moved to a
   worker thread so it cannot stall the event loop, but awaiting a timeout does
-  not forcibly terminate the in-flight SDK call. Hard cancellation is not
-  achievable through the supplied interface.
+  not forcibly terminate the in-flight SDK call: the caller stops waiting and the
+  provider keeps working, and keeps billing. Hard cancellation is not achievable
+  through the supplied interface, and this is measured rather than assumed —
+  `tests/test_ai_service.py` asserts that the worker thread finishes *after* the
+  caller has been told the deadline passed, so a future change cannot quietly
+  start claiming otherwise.
 - `ai.ProviderError` is coarse — it covers missing credentials, missing
   packages, network faults and provider errors alike. Classification relies on
   configuration checks and exception causes.

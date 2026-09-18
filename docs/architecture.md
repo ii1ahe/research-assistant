@@ -152,17 +152,29 @@ delay or fail the whole request, and unbounded fan-out triggers provider rate
 limits (`COMMON_PITFALLS.md` #2).
 
 **Decision.** An orchestrator schedules the selected source tasks under an
-`asyncio.Semaphore` bound, wraps each task in an `asyncio.timeout()` deadline,
-and gathers with `return_exceptions=True`. Every source produces a typed
-`SourceOutcome` recorded as success, empty, timeout or error. Retrieval returns
-a `RetrievalResult` carrying both the successes and the failures. If no usable
+`asyncio.Semaphore` bound and gathers them with `return_exceptions=True`. The
+deadline is applied *inside* each task, by `AIService.fetch_source`, which owns
+the per-source budget for the fetch and its retries; the orchestrator adds no
+second timer, and in particular none wraps the gather, which would let one slow
+source consume the others' time. Every source produces a typed `SourceOutcome`
+recorded as success, empty, timeout or error. Retrieval returns a
+`RetrievalResult` carrying both the successes and the failures. If no usable
 sources remain, synthesis is skipped and an explicit "no sources available"
 result is returned. Missing-source notes are reported to the user and are never
 rendered as citations.
 
+Cache reads and writes bracket that deadline rather than sitting inside it — the
+lookup runs before `fetch_source` is called and the store after it returns — so
+they are bounded where they actually happen, at the database: the PostgreSQL
+pool gives every statement a `command_timeout`. A slow database therefore costs
+one bounded cache operation and then a live fetch, and the cache degrades to a
+miss on the timeout exactly as it does on any other storage fault.
+
 **Consequences.** A single research request degrades gracefully and reports
 which sources were unavailable and why. Partial success is a first-class outcome
-and is disclosed in the CLI output and exit status.
+and is disclosed in the CLI output and exit status. Retrieval's real ceiling is
+one bounded cache operation plus one full per-source budget, not the per-source
+budget alone; the README states it that way.
 
 **Alternatives rejected.** *Plain `asyncio.gather`* — one failing source aborts
 the request. *Unbounded fan-out* — invites HTTP 429s from providers.
