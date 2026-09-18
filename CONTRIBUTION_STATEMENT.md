@@ -34,31 +34,32 @@ README say "we", the ordinary editorial convention for a team document.
 
 **Owned (sole author of these files / PRs):**
 
-Application — `researcher/`, 25 source files, 4 681 lines:
+Application — `researcher/`, 25 source files, 4 864 lines:
 
-- `researcher/models.py` (371), `researcher/validation.py` (358),
-  `researcher/config.py` (316), `researcher/errors.py` (175) — the typed
+- `researcher/models.py` (371), `researcher/validation.py` (390),
+  `researcher/config.py` (316), `researcher/errors.py` (181) — the typed
   contracts, the input and output validators, and the settings object whose
   `persistence_enabled` flag is derived rather than stored.
-- `researcher/services/ai_service.py` (525), `resilience.py` (233),
+- `researcher/services/ai_service.py` (599), `resilience.py` (233),
   `http_client.py` (48) — the only boundary that calls `ai/`, the retry,
   backoff and timeout policy around it, and the throttling translation that
-  honours retry delays named in provider exception text (not HTTP headers).
-- `researcher/services/orchestrator.py` (240), `cache.py` (199),
+  honours a retry delay named in provider exception text and, when the text
+  names none, in the `Retry-After` header the SDK exception carries.
+- `researcher/services/orchestrator.py` (249), `cache.py` (199),
   `wikipedia.py` (190) — bounded concurrent retrieval with per-source
   deadlines and partial results; cache-aside reads and writes; a replacement
   for the supplied Wikipedia *search* step only.
-- `researcher/storage/interfaces.py` (146), `postgres.py` (264),
+- `researcher/storage/interfaces.py` (146), `postgres.py` (293),
   `memory.py` (125), `cache_store.py` (150), `session_repository.py` (125),
   `_driver.py` (59) — the two storage Protocols and both implementations
   behind them.
 - `researcher/core/researcher.py` (256) — the use case.
-- `researcher/bootstrap.py` (277), `cli.py` (362), `rendering.py` (196) — the
+- `researcher/bootstrap.py` (284), `cli.py` (388), `rendering.py` (196) — the
   composition root, argument parsing, exit statuses and terminal output.
 
-Verification — 19 test files, 6 375 lines:
+Verification — 19 test files, 6 764 lines:
 
-- `tests/` — **357 tests, 96 % coverage** over `researcher/`.
+- `tests/` — **380 tests, 96 % coverage** over `researcher/`.
 - `tests/conftest.py` — including the autouse `no_internet` fixture that makes
   the suite's offline guarantee enforced rather than intended.
 - `tests/test_offline_guard.py` — tests the guard itself.
@@ -89,7 +90,7 @@ each cut from an updated `main`.
 
 **Reviewed:** by `Elmin995` — PR #11 and PR #12, each approved with a
 written review and an inline comment, both on the repository. Code-level
-gating is mechanical and is described in §6 of the report: 357 tests,
+gating is mechanical and is described in §6 of the report: 380 tests,
 `mypy` in strict mode over `researcher/` and `scripts/`, `ruff` with the
 `T20` rule enabled for the modules that must not print, and a live benchmark
 that drives the real APIs and a real PostgreSQL. The two defects the README
@@ -166,7 +167,7 @@ were rejected or rewritten.
 | `tests/` (all 19 files) | Claude (Anthropic) | Drafted the suite from the module contracts. I reviewed each test and wrote the offline guard after finding that five tests were silently calling the live Wikipedia API and passing anyway — they patched a fetcher that was no longer being called. |
 | `Dockerfile`, `compose.yaml`, `.dockerignore` | Claude (Anthropic) | Drafted from the supplied template. Three defects were found only by building and running the image — see §7.1 of the report — and each fix is documented in the README. |
 | `docs/architecture.md`, `docs/security.md` | Claude (Anthropic) | Drafted the prose from decisions I had already made. The six ADRs record choices that are mine; `docs/security.md`'s gap list was checked against the running system rather than asserted. |
-| `report/report.tex`, `slides/slides.tex` | Claude (Anthropic) | Drafted the prose and typeset both documents from `templates/`. Every number is traceable to `artefacts/bench.json`, a test run, or the container — I re-ran the suite (357 passed, 96 %) and checked the module line counts against `wc -l` before submitting. |
+| `report/report.tex`, `slides/slides.tex` | Claude (Anthropic) | Drafted the prose and typeset both documents from `templates/`. Every number is traceable to `artefacts/bench.json`, a test run, or the container — I re-ran the suite (380 passed, 96 %) and checked the module line counts against `wc -l` before submitting. |
 | `artefacts/reproduction-codespaces-bfec78.txt` | Claude (Anthropic) | Drafted from the machine's actual output — versions, commands, counts — which I checked against my Codespace run before committing. |
 | — | GitHub Copilot | Not used. |
 | `report/`, `slides/`, submission documentation | OpenAI Codex | Checked the final documents against source code, test evidence, and compiled PDFs; corrected inconsistencies. |
