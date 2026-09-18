@@ -16,8 +16,10 @@
 
 ## Submission type: three members
 
-Git history attributes the application commits to `ii1ahe` and one
-clean-clone reproduction commit to `fatimekazimli`. `Elmin995`'s contribution
+At the final tag, Git history records **23 commits: 21 by `ii1ahe`, one by
+`fatimekazimli`, and one by `Elmin995`**. Git history attributes the application
+commits to `ii1ahe` and one clean-clone reproduction commit to
+`fatimekazimli`. `Elmin995`'s contribution
 is peer review: it is recorded on the repository as approvals and inline
 comments on PRs #11 and #12, and in the tree as `docs/peer-review.md`, the
 one commit authored under his name. The approximate work shares below include
@@ -35,10 +37,10 @@ README say "we", the ordinary editorial convention for a team document.
 
 **Owned (sole author of these files / PRs):**
 
-Application — `researcher/`, 25 source files, 4 864 lines:
+Application — `researcher/`, 25 source files, 4 865 lines:
 
 - `researcher/models.py` (371), `researcher/validation.py` (390),
-  `researcher/config.py` (316), `researcher/errors.py` (181) — the typed
+  `researcher/config.py` (317), `researcher/errors.py` (181) — the typed
   contracts, the input and output validators, and the settings object whose
   `persistence_enabled` flag is derived rather than stored.
 - `researcher/services/ai_service.py` (599), `resilience.py` (233),
@@ -73,7 +75,10 @@ Infrastructure and documentation:
   `artefacts/pip-audit.txt`
 - `pyproject.toml`, `pytest.ini`, `requirements*.txt`, `.env.example`,
   `.gitignore`
-- `README.md`; `docs/architecture.md` (six ADRs); `docs/security.md`
+- `README.md`; `docs/architecture.md` (six ADRs); `docs/security.md`.
+  The 2026-09-18 live rehearsal exposed timeouts with the previous Gemini
+  default; the lighter model now configured in `researcher/config.py` completed
+  three full CLI runs with citations and session persistence.
 - `report/report.tex` and the compiled `report/report.pdf` (10 pages, pdfLaTeX)
 - `slides/slides.tex` and the compiled `slides/slides.pdf` (11 frames, beamer)
 
@@ -86,8 +91,9 @@ Infrastructure and documentation:
 [#7](https://github.com/ii1ahe/research-assistant/pull/7),
 [#8](https://github.com/ii1ahe/research-assistant/pull/8), the Phase 8
 submission PR (#9), the purge-and-scan PR (#10), the Retry-After PR (#11),
-and the final polish PR that carries this statement. One branch per piece,
-each cut from an updated `main`.
+and the final polish PR that introduced this statement. Those PRs used
+branches cut from an updated `main`; the subsequent audit, live-demo model
+change, and this statement correction were committed directly to `main`.
 
 **Reviewed:** by `Elmin995` — PR #11 and PR #12, each approved with a
 written review and an inline comment, both on the repository. Code-level
@@ -179,7 +185,7 @@ were rejected or rewritten.
 | `report/report.tex`, `slides/slides.tex` | Claude (Anthropic) | Drafted the prose and typeset both documents from `templates/`. Every number is traceable to `artefacts/bench.json`, a test run, or the container — I re-ran the suite (380 passed, 96 %) and checked the module line counts against `wc -l` before submitting. |
 | `artefacts/reproduction-codespaces-bfec78.txt` | Claude (Anthropic) | Drafted from the machine's actual output — versions, commands, counts — which I checked against my Codespace run before committing. |
 | — | GitHub Copilot | Not used. |
-| `report/`, `slides/`, submission documentation | OpenAI Codex | Checked the final documents against source code, test evidence, and compiled PDFs; corrected inconsistencies. |
+| `researcher/config.py`, `README.md`, `report/`, `slides/`, submission documentation | OpenAI Codex | Checked the final documents against source code, test evidence, and compiled PDFs; corrected inconsistencies. Diagnosed a live synthesis timeout, changed the application's Gemini default, and verified cited answers through the full CLI with real providers and PostgreSQL. |
 
 We affirm that **every line of code in the repository can be defended** by
 at least one member during the oral defense. "The AI wrote it" is not an
