@@ -16,7 +16,7 @@
 
 ## Submission type: three members
 
-At the final tag, Git history records **23 commits: 21 by `ii1ahe`, one by
+At the final tag, Git history records **24 commits: 22 by `ii1ahe`, one by
 `fatimekazimli`, and one by `Elmin995`**. Git history attributes the application
 commits to `ii1ahe` and one clean-clone reproduction commit to
 `fatimekazimli`. `Elmin995`'s contribution
@@ -72,7 +72,8 @@ Infrastructure and documentation:
 - `migrations/001_initial_schema.sql`, `Dockerfile`, `compose.yaml`,
   `.dockerignore`
 - `scripts/bench.py`; `artefacts/bench.json`, `artefacts/bench-report.txt`,
-  `artefacts/pip-audit.txt`
+  `artefacts/pip-audit.txt`, and the real end-to-end execution record in
+  `artefacts/sample-run.md`
 - `pyproject.toml`, `pytest.ini`, `requirements*.txt`, `.env.example`,
   `.gitignore`
 - `README.md`; `docs/architecture.md` (six ADRs); `docs/security.md`.
@@ -80,7 +81,10 @@ Infrastructure and documentation:
   default; the lighter model now configured in `researcher/config.py` completed
   three full CLI runs with citations and session persistence.
 - `report/report.tex` and the compiled `report/report.pdf` (10 pages, pdfLaTeX)
-- `slides/slides.tex` and the compiled `slides/slides.pdf` (11 frames, beamer)
+- `slides/slides.tex` and the compiled `slides/slides.pdf` (19 Azerbaijani
+  presentation frames, Beamer), and `slides/DEFENSE_RUNBOOK_AZ.md`
+  (expanded word-for-word narration with per-slide process and terminology
+  explanations)
 
 **PRs:** [#1](https://github.com/ii1ahe/research-assistant/pull/1),
 [#2](https://github.com/ii1ahe/research-assistant/pull/2),
@@ -182,10 +186,10 @@ were rejected or rewritten.
 | `tests/` (all 19 files) | Claude (Anthropic) | Drafted the suite from the module contracts. I reviewed each test and wrote the offline guard after finding that five tests were silently calling the live Wikipedia API and passing anyway — they patched a fetcher that was no longer being called. |
 | `Dockerfile`, `compose.yaml`, `.dockerignore` | Claude (Anthropic) | Drafted from the supplied template. Three defects were found only by building and running the image — see §7.1 of the report — and each fix is documented in the README. |
 | `docs/architecture.md`, `docs/security.md` | Claude (Anthropic) | Drafted the prose from decisions I had already made. The six ADRs record choices that are mine; `docs/security.md`'s gap list was checked against the running system rather than asserted. |
-| `report/report.tex`, `slides/slides.tex` | Claude (Anthropic) | Drafted the prose and typeset both documents from `templates/`. Every number is traceable to `artefacts/bench.json`, a test run, or the container — I re-ran the suite (380 passed, 96 %) and checked the module line counts against `wc -l` before submitting. |
+| `report/report.tex`, initial English `slides/slides.tex` | Claude (Anthropic) | Drafted the report prose and initial slide deck from `templates/`. I checked the numerical claims against benchmark artefacts and test output. The current Azerbaijani deck replaces that earlier slide draft. |
 | `artefacts/reproduction-codespaces-bfec78.txt` | Claude (Anthropic) | Drafted from the machine's actual output — versions, commands, counts — which I checked against my Codespace run before committing. |
 | — | GitHub Copilot | Not used. |
-| `researcher/config.py`, `README.md`, `report/`, `slides/`, submission documentation | OpenAI Codex | Checked the final documents against source code, test evidence, and compiled PDFs; corrected inconsistencies. Diagnosed a live synthesis timeout, changed the application's Gemini default, and verified cited answers through the full CLI with real providers and PostgreSQL. |
+| `researcher/config.py`, `README.md`, `report/`, `slides/`, submission documentation | OpenAI Codex | Checked documents against source code, tests, and compiled PDFs; corrected inconsistencies. Diagnosed a live synthesis timeout, changed the Gemini default, and verified cited answers with real providers and PostgreSQL. Rebuilt the Azerbaijani defense deck and wrote its speaker runbook from the verified project evidence. |
 
 We affirm that **every line of code in the repository can be defended** by
 at least one member during the oral defense. "The AI wrote it" is not an

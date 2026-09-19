@@ -1,405 +1,552 @@
-% =====================================================================
-% AI Academy -- National AI Center
-% Software Engineering Final Project -- Defense Deck
-%
-% Topic 4 -- Async Research Assistant
-% Produced from templates/SLIDES_TEMPLATE.tex.
-%
-% Compile with pdfLaTeX (two passes, for \inserttotalframenumber):
-%   pdflatex slides.tex && pdflatex slides.tex
-% =====================================================================
-
-\PassOptionsToPackage{dvipsnames}{xcolor}
+% Topic 4 — Async Research Assistant
+% Azerbaijani oral-defense deck. Compile twice with XeLaTeX:
+%   xelatex -interaction=nonstopmode -halt-on-error slides.tex
+% All 19 frames are part of the talk; there is no closing or appendix frame.
+% Expanded narration plus per-slide process and term explanations live in
+% DEFENSE_RUNBOOK_AZ.md.
 \documentclass[aspectratio=169,11pt]{beamer}
 
-% ===== CONFIGURATION =================================================
-% No official team name; the member names are the GitHub handles.
-\newcommand{\teamname}{}
-\newcommand{\topicchoice}{Topic 4 --- Async Research Assistant}
-\newcommand{\memberone}{\texttt{@ii1ahe}}
-\newcommand{\membertwo}{\texttt{@fatimekazimli}}
-\newcommand{\memberthree}{\texttt{@Elmin995}}
-\newcommand{\repolink}{github.com/ii1ahe/research-assistant}
-\newcommand{\defensedate}{\today}
-
-\newcommand{\coursecode}{AI-ENG-110}
-\newcommand{\coursename}{Software Engineering}
-\newcommand{\institution}{AI Academy, National AI Center}
-\newcommand{\semester}{Spring 2026}
-
-% ===== PACKAGES ======================================================
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage{xcolor}
-\usepackage{tabularx}
+\usepackage{fontspec}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,shapes.geometric}
 \usepackage{booktabs}
 \usepackage{listings}
-\usepackage{tikz}
-\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{xcolor}
 
-% ===== EARLY MACROS ==================================================
-\definecolor{accent2}{HTML}{8B0000}
-\newcommand{\TODO}[1]{\textcolor{accent2}{\textbf{[TODO: #1]}}}
-\definecolor{ph}{HTML}{6B7280}
-\newcommand{\ph}[1]{\textcolor{ph}{\textit{#1}}}
-
-% ===== BEAMER THEME (custom, no flashy decorations) =================
+\setsansfont{FreeSans}
+\setmainfont{FreeSans}
+\setmonofont{FreeMono}
 \usetheme{default}
-\usefonttheme{professionalfonts}
 \setbeamertemplate{navigation symbols}{}
+\setbeamersize{text margin left=7mm,text margin right=7mm}
 
-\definecolor{accent}{HTML}{0B3D91}
-\definecolor{soft}{HTML}{F2F4F8}
-\definecolor{ok}{HTML}{166534}
+\definecolor{ink}{HTML}{12263B}
+\definecolor{teal}{HTML}{007E86}
+\definecolor{orange}{HTML}{D47C2A}
+\definecolor{green}{HTML}{26745C}
+\definecolor{red}{HTML}{A94C49}
+\definecolor{muted}{HTML}{526579}
+\definecolor{paper}{HTML}{FAFCFD}
+\definecolor{soft}{HTML}{E8F0F4}
+\definecolor{aqua}{HTML}{E4F4F3}
+\definecolor{amber}{HTML}{FFF1E1}
+\definecolor{codebg}{HTML}{F1F5F8}
 
-\setbeamercolor{title}{fg=accent}
-\setbeamercolor{frametitle}{fg=accent}
-\setbeamercolor{section in head/foot}{bg=accent,fg=white}
-\setbeamercolor{itemize item}{fg=accent}
-\setbeamercolor{itemize subitem}{fg=accent}
-\setbeamercolor{enumerate item}{fg=accent}
-\setbeamercolor{block title}{bg=accent,fg=white}
-\setbeamercolor{block body}{bg=soft,fg=black}
-
-\setbeamerfont{title}{size=\Large,series=\bfseries}
-\setbeamerfont{frametitle}{size=\large,series=\bfseries}
-\setbeamerfont{footline}{size=\tiny}
-
-% Footer with the deck's subject + slide number. The team name is omitted
-% entirely while it is blank, rather than leaving a dangling separator.
-\newcommand{\footleft}{\ifdefempty{\teamname}{\topicchoice}{\teamname{} -- \topicchoice}}
-% The box must be set \emph{to} the paper width, or the \hfill skips collapse
-% and the three parts run together on one line.
+\setbeamercolor{background canvas}{bg=paper}
+\setbeamercolor{normal text}{fg=ink}
+\setbeamercolor{frametitle}{fg=ink}
+\setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+\setbeamertemplate{frametitle}{%
+  \vspace{4mm}\hspace{1mm}\insertframetitle\par\vspace{1mm}%
+  \hspace{1mm}{\color{teal}\rule{14mm}{1.2pt}}\vspace{1mm}%
+}
+\setbeamercolor{panel}{bg=soft,fg=ink}
+\setbeamercolor{aqua panel}{bg=aqua,fg=ink}
+\setbeamercolor{amber panel}{bg=amber,fg=ink}
+\setbeamercolor{dark panel}{bg=ink,fg=white}
+\newenvironment{panel}{\begin{beamercolorbox}[wd=\linewidth,sep=1.2ex,rounded=true]{panel}}{\end{beamercolorbox}}
+\newenvironment{aquapanel}{\begin{beamercolorbox}[wd=\linewidth,sep=1.2ex,rounded=true]{aqua panel}}{\end{beamercolorbox}}
+\newenvironment{amberpanel}{\begin{beamercolorbox}[wd=\linewidth,sep=1.2ex,rounded=true]{amber panel}}{\end{beamercolorbox}}
+\newenvironment{darkpanel}{\begin{beamercolorbox}[wd=\linewidth,sep=1.2ex,rounded=true]{dark panel}}{\end{beamercolorbox}}
+\newcommand{\lead}[1]{{\color{muted}\normalsize #1}\par\vspace{0.75em}}
+\newcommand{\tinyref}[1]{{\color{muted}\scriptsize #1}}
+\newcommand{\metric}[2]{{\color{teal}\Large\bfseries #1}\par{\small #2}}
+\newcommand{\speaker}{ii1ahe}
 \setbeamertemplate{footline}{%
-  \leavevmode%
-  \hbox to\paperwidth{\hspace*{2ex}\tiny\textit{\footleft}\hfill%
-  \tiny\textit{\coursecode{} -- \semester{}}\hfill%
-  \tiny\insertframenumber/\inserttotalframenumber\hspace*{2ex}}%
-  \vskip1pt%
+  \leavevmode\hbox to\paperwidth{%
+    \hspace{7mm}{\color{muted}\scriptsize Topic 4 / \speaker}%
+    \hfill{\color{muted}\scriptsize \insertframenumber}\hspace{7mm}}%
+  \vspace{2mm}%
 }
-
-% ===== CODE LISTINGS =================================================
-\definecolor{codegreen}{rgb}{0,0.55,0}
-\definecolor{codepurple}{rgb}{0.55,0,0.78}
-\lstdefinestyle{python}{
+\lstdefinestyle{project}{
   language=Python,
-  backgroundcolor=\color{soft},
-  commentstyle=\color{codegreen},
-  keywordstyle=\color{accent},
-  stringstyle=\color{codepurple},
-  basicstyle=\ttfamily\scriptsize,
-  breaklines=true,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{teal}\bfseries,
+  stringstyle=\color{orange},
+  commentstyle=\color{muted},
+  backgroundcolor=\color{codebg},
   frame=single,
-  framerule=0.4pt,
-  rulecolor=\color{black!30},
+  rulecolor=\color{soft},
+  framesep=6pt,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true
+}
+\lstdefinestyle{sql}{
+  language=SQL,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{teal}\bfseries,
+  backgroundcolor=\color{codebg},
+  frame=single,
+  rulecolor=\color{soft},
+  framesep=6pt,
+  columns=fullflexible
+}
+\tikzset{
+  flow/.style={draw=teal,rounded corners=2mm,fill=aqua,align=center,minimum height=12mm,text width=24mm,font=\small},
+  source/.style={draw=teal,rounded corners=2mm,fill=white,align=center,minimum height=11mm,text width=26mm,font=\small},
+  arr/.style={-Latex,thick,draw=teal}
 }
 
-% =====================================================================
 \begin{document}
 
-% ========== SLIDE 1: TITLE ===========================================
-{%
+% 01 — title
+{\setbeamercolor{background canvas}{bg=ink}
 \setbeamertemplate{footline}{}
 \begin{frame}[plain]
-  \begin{center}
-    \vspace{0.6cm}
-    {\small \textsc{\institution}}\\[0.2em]
-    {\small \textsc{\coursecode{} -- \coursename{} -- \semester{}}}\\[1.2em]
-    \rule{0.7\textwidth}{0.6pt}\\[0.4em]
-    {\Huge\bfseries\color{accent} \topicchoice}\\[0.4em]
-    \rule{0.7\textwidth}{0.6pt}\\[1.2em]
-    \ifdefempty{\teamname}{}{{\large \teamname}\\[0.6em]}
-    {\normalsize \memberone \enspace \membertwo \enspace \memberthree}\\[1cm]
-    {\footnotesize\itshape Final Project Defense -- \defensedate}\\[0.4em]
-    {\footnotesize\texttt{\repolink}}
-  \end{center}
-\end{frame}
-}
+  \vspace{7mm}
+  {\color{orange}\small AI-ENG-110 \quad SOFTWARE ENGINEERING FINAL PROJECT}\par
+  \vspace{9mm}
+  {\color{white}\fontsize{29}{33}\selectfont\bfseries Asinxron tədqiqat köməkçisi}\par
+  \vspace{4mm}
+  {\color{white}\Large Mənbələrdən istinadlı cavabın hazırlanması}\par
+  \vspace{9mm}
+  {\color{white}\normalsize Wikipedia + arXiv + veb axtarışı \quad $\longrightarrow$ \quad mənbəli cavab}\par
+  \vfill
+  {\color{white}\small @ii1ahe \quad @Elmin995 \quad @fatimekazimli}\par
+  {\color{white!75}\scriptsize github.com/ii1ahe/research-assistant \quad | \quad 18 sentyabr 2026}
+\end{frame}}
 
-% ========== SLIDE 2: PROBLEM =========================================
-\begin{frame}{The problem in one sentence}
-  \begin{block}{What the system does}
-    You ask one research question; the system retrieves evidence from Wikipedia, arXiv and the
-    open web \emph{concurrently}, and returns one answer whose numbered citations point at the
-    sources it actually used.
-  \end{block}
-
-  \vspace{0.3em}
+% 02 — the problem
+\begin{frame}{Cavabın mənbələrinin göstərilməsi}
+  \lead{Hazırlanan cavabın hansı materiallara əsaslandığı istifadəçiyə göstərilməlidir.}
   \begin{columns}[T,onlytextwidth]
-  \column{0.48\textwidth}
-  \textbf{Inputs}
-  \begin{itemize}\setlength\itemsep{0.25em}
-    \item a question (non-empty, $\le$500 chars)
-    \item sources: \texttt{wikipedia}, \texttt{arxiv}, \texttt{web}
-    \item a results-per-source limit (1--20, default 3)
-  \end{itemize}
-
-  \column{0.48\textwidth}
-  \textbf{Outputs}
-  \begin{itemize}\setlength\itemsep{0.25em}
-    \item a cited answer + a numbered source list
-    \item a per-source retrieval report
-    \item a session row, and an exit status
-  \end{itemize}
+    \column{0.39\linewidth}
+      \begin{amberpanel}
+        \textbf{Bir sual}\par\vspace{1mm}
+        “Fotosintez nədir və əsas mərhələləri hansılardır?”
+      \end{amberpanel}
+      \vspace{3mm}
+      \small Tək axtarış nəticəsindən asılılıq yaradılmaması üçün müxtəlif mənbələrə sorğu göndərilir.
+    \column{0.57\linewidth}
+      \begin{tikzpicture}[node distance=2mm]
+        \node[source] (w) {Wikipedia};
+        \node[source,below=of w] (a) {arXiv};
+        \node[source,below=of a] (v) {Veb};
+        \node[flow,right=17mm of a,text width=31mm,fill=amber,draw=orange] (ans) {İstinadlı cavab\\[1mm]\textbf{[1] [7] [8]}};
+        \draw[arr] (w.east) -- (ans.west);
+        \draw[arr] (a.east) -- (ans.west);
+        \draw[arr] (v.east) -- (ans.west);
+      \end{tikzpicture}\par
+      \vspace{1mm}
+      \tinyref{[1], [7], [8] 18 sentyabr canlı yoxlamasında görünən istinad nömrələridir; bu slayd cavab mətnini təkrar etmir.}
   \end{columns}
-
-  \vspace{0.5em}
-  \textbf{Entry points:} \texttt{python -m researcher ask} and \texttt{demo} (five supplied
-  questions). \textbf{No HTTP API} --- ADR-006; the container publishes no port.
-
-  \vspace{0.3em}
-  {\footnotesize Exit status is part of the contract: \textbf{0} answered (possibly partial),
-  \textbf{1} no usable answer, \textbf{2} bad input or configuration.}
 \end{frame}
 
-% ========== SLIDE 3: ARCHITECTURE ====================================
-\begin{frame}{Architecture}
-  \textbf{Where the provided \texttt{ai/} ends and our engineering begins.}
+% 03 — contract
+\begin{frame}[fragile]{Giriş və çıxış müqaviləsi}
+  \lead{Sual və parametrlər qəbul edilir; cavab, mənbələr, status və saxlanma məlumatı qaytarılır.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.49\linewidth}
+      \textbf{Giriş}\par
+      \begin{lstlisting}[style=project]
+question: str
+sources: tuple[SourceName, ...]
+use_cache: bool = True
+max_results: int = Field(default=3, ge=1)
+      \end{lstlisting}
+      \tinyref{Həqiqi sahələr: researcher/models.py, ResearchRequest. CLI limiti sazlamadan götürür.}
+    \column{0.49\linewidth}
+      \textbf{Çıxış}\par
+      \begin{panel}
+        \small\textbf{Cavab + nömrəli istinadlar}\par
+        Hər mənbənin uğur/boş/xəta vəziyyəti\par
+        Sessiyanın saxlanıb-saxlanmaması
+      \end{panel}
+      \vspace{2mm}
+      \begin{aquapanel}
+        \small\textbf{Çıxış kodu:} 0 — uğurlu; 1 — cavab yoxdur və ya tələb olunan yazı alınmadı; 2 — giriş/sazlama xətası.
+      \end{aquapanel}
+  \end{columns}
+\end{frame}
 
-  \vspace{0.2em}
+% 04 — data/control flow
+\begin{frame}{Sorğunun emal mərhələləri}
+  \lead{Mənbələrin toplanması ilə yanaşı sıralama, yoxlama və saxlanma qərarları da icra edilir.}
+  \vspace{1mm}
   \begin{center}
-  \begin{tikzpicture}[
-    node distance=4mm,
-    box/.style={draw,rounded corners=2pt,minimum height=7mm,align=center,
-                font=\scriptsize,inner sep=3pt},
-    ours/.style={box,fill=accent!10,draw=accent},
-    provided/.style={box,fill=soft,draw=accent,line width=0.8pt,text width=30mm},
-    entry/.style={box,fill=ok!15,draw=ok,line width=0.8pt},
-    arrow/.style={-Stealth,thick,draw=accent}
-  ]
-    \node[entry,text width=34mm] (cli) {\texttt{cli.py} --- \texttt{ask}, \texttt{demo}};
-    \node[ours,text width=34mm,below=of cli] (core) {\texttt{core/researcher.py}\\(the use case)};
-    \node[ours,text width=26mm,below=6mm of core,xshift=-25mm] (orch) {\texttt{services/}\\\texttt{orchestrator.py}};
-    \node[ours,text width=26mm,right=3mm of orch] (cache) {\texttt{services/}\\\texttt{cache.py}};
-    \node[ours,text width=26mm,right=3mm of cache] (aisvc) {\texttt{services/}\\\texttt{ai\_service.py}};
-    \node[ours,text width=44mm,below=6mm of cache] (store) {\texttt{storage/interfaces.py} --- two Protocols};
-    \node[ours,text width=28mm,below=4mm of store,xshift=-16mm] (pg) {\texttt{postgres.py}\\(PostgreSQL)};
-    \node[ours,text width=28mm,below=4mm of store,xshift=16mm] (mem) {\texttt{memory.py}\\(test double)};
-    \node[provided,right=9mm of aisvc] (ai) {\textbf{provided \texttt{ai/}}\\LLM + source fetchers};
-
-    \draw[arrow] (cli) -- (core);
-    \draw[arrow] (core) -- (orch);
-    \draw[arrow] (core) -- (cache);
-    \draw[arrow] (core) -- (aisvc);
-    \draw[arrow] (orch) -- (aisvc);
-    \draw[arrow] (orch) -- (cache);
-    \draw[arrow] (cache) -- (store);
-    \draw[arrow] (store) -- (pg);
-    \draw[arrow] (store) -- (mem);
-    \draw[arrow, dashed] (aisvc) -- (ai);
+  \begin{tikzpicture}[node distance=4mm]
+    \node[flow] (a) {1\\Giriş və yoxlama};
+    \node[flow,right=of a] (b) {2\\Üç mənbəyə sorğu};
+    \node[flow,right=of b] (c) {3\\Sıralama və təkrarların silinməsi};
+    \node[flow,below=6mm of c] (d) {4\\AI ilə sintez};
+    \node[flow,left=of d] (e) {5\\İstinad yoxlaması};
+    \node[flow,left=of e] (f) {6\\Sessiya və CLI çıxışı};
+    \draw[arr] (a) -- (b);
+    \draw[arr] (b) -- (c);
+    \draw[arr] (c) -- (d);
+    \draw[arr] (d) -- (e);
+    \draw[arr] (e) -- (f);
   \end{tikzpicture}
   \end{center}
-
-  \vspace{0.1em}
-  {\footnotesize Layered modular monolith (ADR-001). \texttt{ai/} is imported, never modified,
-  and reached through one module.}
+  \vspace{0mm}
+  \begin{aquapanel}
+    \small\textbf{Əsas qayda:} sintezdən sonra mənbə sırası dəyişdirilmir; əks halda “[1]” başqa materiala yönələ bilər.
+  \end{aquapanel}
 \end{frame}
 
-% ========== SLIDE 4: KEY DESIGN DECISIONS ============================
-\begin{frame}{Three design decisions we can defend}
-  \begin{enumerate}\setlength\itemsep{0.5em}
-    \item \textbf{Protocols over abstract base classes, at both storage seams.}\\
-      An ABC imposes a \emph{nominal} relationship, so a test double must inherit from the real
-      implementation. A \texttt{Protocol} is structural --- which is why \texttt{memory.py} is a
-      genuine second implementation with the \emph{same} contract suite run against both.
-    \item \textbf{A semaphore, not a bigger \texttt{gather}.}\\
-      The bound on in-flight sources is configuration (1--16), not the shape of the code. And
-      each fetch carries its own deadline rather than one wrapping the group --- a group deadline
-      lets one slow source destroy two fast results.
-    \item \textbf{PostgreSQL for both the cache and the sessions} (ADR-002).\\
-      One store to operate; \texttt{ON CONFLICT} makes the database enforce the upsert; and
-      \texttt{PERSIST\_SESSIONS=false} skips session writes, not cache use.
-  \end{enumerate}
-
-  \vspace{0.15em}
-  \begin{block}{Expect to be asked}
-    ``Why not threads? Why not SQLite? Why not an HTTP API?'' --- answers in ADR-005, ADR-002,
-    ADR-006.
-  \end{block}
-\end{frame}
-
-% ========== SLIDE 5: CONCURRENCY (THE BENCHMARK) =====================
-\begin{frame}{Concurrency: the benchmark}
-  \textbf{Workload:} the five supplied sample questions, three sources, three results each, live
-  APIs, no cache reuse (\texttt{python scripts/bench.py --pause 10}).
-
-  \vspace{0.3em}
-  \begin{center}\small
-  \begin{tabular}{lccc}
-    \toprule
-    & \textbf{Sequential (b=1)} & \textbf{Concurrent (b=3)} & \textbf{Speedup} \\
-    \midrule
-    Retrieval (5 questions)   & 4.83\,s & 2.89\,s & \textbf{1.67$\times$} \\
-    Retrieval (per question)  & 0.97\,s & 0.58\,s & \textbf{1.67$\times$} \\
-    End to end (5 questions)  & 43.4\,s & 43.3\,s & \textbf{1.00$\times$} \\
-    \bottomrule
-  \end{tabular}
+% 05 — architecture
+\begin{frame}{Sistemin qatlara bölünməsi}
+  \lead{Hər qata ayrıca məsuliyyət verilir; xarici xidmət dəyişdikdə əsas istifadə halı sabit saxlanılır.}
+  \begin{center}
+  \begin{tikzpicture}[node distance=1.5mm, font=\small]
+    \node[flow,text width=36mm] (cli) {CLI / bootstrap\\\scriptsize giriş və resurslar};
+    \node[flow,below=of cli,text width=36mm] (core) {ResearchService\\\scriptsize əsas istifadə halı};
+    \node[flow,below=5mm of core,text width=39mm] (svc) {Orchestrator + Cache + AIService\\\scriptsize xidmət siyasəti};
+    \node[source,left=4mm of svc,text width=30mm,fill=amber,draw=orange] (provided) {verilmiş \texttt{ai/}\\\scriptsize dəyişdirilməyib};
+    \node[flow,right=4mm of svc,text width=36mm] (store) {Storage Protocols\\\scriptsize PostgreSQL / yaddaş};
+    \draw[arr] (cli) -- (core);
+    \draw[arr] (core) -- (svc);
+    \draw[arr] (svc) -- (store);
+    \draw[arr,dashed] (svc) -- (provided);
+  \end{tikzpicture}
   \end{center}
-
-  \vspace{0.25em}
-  \textbf{Bottleneck named:} synthesis is \emph{one sequential model call}, 89\,\% of wall-clock
-  time. The concurrency design optimised the other 11\,\%.
-
-  \vspace{0.2em}
-  \textbf{What didn't reach $N\times$:} the ceiling is not the source count but the ratio of
-  summed to slowest latency --- \textbf{1.83$\times$} here, so 1.67$\times$ is
-  \textbf{92\,\% of the ceiling}.
+  \vspace{-2mm}
+  \tinyref{Qatlı modul monolit: məsuliyyətlər ayrılır, asılılıqlar bootstrap-da birləşdirilir.}
 \end{frame}
 
-% ========== SLIDE 6: ROBUSTNESS STORY ================================
-\begin{frame}{Robustness: one concrete failure mode}
-  \textbf{Scenario:} mid-verification, Gemini returned \texttt{429 RESOURCE\_EXHAUSTED}
-  (\texttt{limit: 20}, \texttt{Please retry in 21.9s}). Two of five demo questions unanswered.
-
-  \vspace{0.2em}
-  \textbf{How we surfaced it:} we suspected the new container and \emph{refuted} it --- the same
-  question from the host answered in 2.92\,s. Then we probed the provider directly to see the raw
-  payload behind our deliberately generic message.
-
-  \vspace{0.2em}
-  \textbf{What the system does:}
-  \begin{itemize}\setlength\itemsep{0.15em}
-    \item \textbf{Isolate:} \texttt{gather(return\_exceptions=True)} + a \texttt{SourceOutcome}
-      per source --- one question lost, not the run.
-    \item \textbf{Disclose:} the CLI names the failed source; exit 1 separates ``some questions
-      failed'' from ``the program broke''.
-    \item \textbf{Contain:} provider text never reaches a log --- it becomes an
-      \texttt{UpstreamError} with a safe message.
-  \end{itemize}
-
-  \vspace{0.2em}
-  \textbf{\textcolor{accent2}{The gap we are naming, not hiding:}} we wait a jittered
-  $\le$0.5\,s against a \textbf{21.9\,s} hint, so all three attempts land in one window.
-\end{frame}
-
-% ========== SLIDE 7: DEMO ============================================
-\begin{frame}[fragile]{Live demo (or scripted demo)}
-  \begin{block}{What we will run}
-    The five supplied sample questions end to end, inside the container, against a real
-    PostgreSQL --- showing the answer, its citations, and the per-source report.
-  \end{block}
-
-  \vspace{0.3em}
-  \textbf{Demo command (works inside Docker):}
-  \begin{lstlisting}[style=python,language=bash,numbers=none]
-$ docker compose up -d postgres
-$ docker compose run --rm app
-$ docker compose run --rm app python -m researcher ask \
-      "What is photosynthesis and what are its main stages?" \
-      --sources wikipedia,arxiv,web
-\end{lstlisting}
-
-  \vspace{0.2em}
-  \begin{itemize}\setlength\itemsep{0.2em}
-    \item The per-source report shows \texttt{attempts=0} on a cache hit, and names the source
-      that failed on a partial run.
-    \item Session row written \emph{from inside the container}; the suite runs there too, with
-      only the 8 database tests skipping --- the image reaches no database.
-  \end{itemize}
-
-  \vspace{0.1em}
-  {\footnotesize\textit{Backup: the free tier allows 20 syntheses/day/model and a demo costs 5,
-  so a pre-recorded run guards against a spent quota.}}
-\end{frame}
-
-% ========== SLIDE 8: TESTING =========================================
-\begin{frame}{Testing}
+% 06 — citation integrity
+\begin{frame}[fragile]{İstinad nömrələrinin yoxlanması}
+  \lead{Cavabın strukturu yoxlanılır; mənbənin iddianı faktiki dəstəkləməsi ayrıca məsələdir.}
   \begin{columns}[T,onlytextwidth]
-  \column{0.54\textwidth}
-  \textbf{Coverage \& shape}
-  \begin{itemize}\setlength\itemsep{0.3em}
-    \item 380 tests; 96\,\% coverage over \texttt{researcher/}
-    \item 6\,764 lines of tests vs 4\,864 of application code
-    \item Provided \texttt{ai/} smoke tests: \textcolor{ok}{\textbf{16/16 passing}}
-    \item All offline --- \emph{enforced}, not intended
-  \end{itemize}
-
-  \column{0.44\textwidth}
-  \textbf{Three tests worth calling out}
-  \begin{itemize}\setlength\itemsep{0.3em}
-    \item Synthesis-deadline regression --- \emph{hangs} if the deadline is ever rejoined
-    \item The offline guard --- 11 cases, permits private ranges, refuses public ones
-    \item The storage contract --- one suite, both implementations
-  \end{itemize}
+    \column{0.53\linewidth}
+      \textbf{Həqiqi koddan fraqment}\par
+      \begin{lstlisting}[style=project]
+if not answer.answer.strip():
+    raise InvalidAnswerError(
+        "the synthesizer returned an empty answer; there is nothing to report",
+        source="synthesis",
+    )
+      \end{lstlisting}
+      \tinyref{researcher/validation.py — validate\_answer}
+    \column{0.44\linewidth}
+      \begin{panel}
+        \small\textbf{[1]} $\rightarrow$ siyahıdakı 1-ci mənbə\par
+        \textbf{[7]} $\rightarrow$ siyahıdakı 7-ci mənbə\par
+        \textbf{[8]} $\rightarrow$ siyahıdakı 8-ci mənbə
+      \end{panel}
+      \vspace{2mm}
+      \small İndeksin müsbət, sərhəd daxilində, təkrarsız və uyğun mənbəyə bağlı olması tələb edilir.
   \end{columns}
-
-  \vspace{0.5em}
-  \begin{block}{Tooling}
-    \texttt{pytest} + \texttt{pytest-asyncio} (strict) + \texttt{respx}; \texttt{ruff};
-    \texttt{mypy} \texttt{--strict} over \texttt{researcher/} and \texttt{scripts/}. The offline
-    guard exists because five tests once passed while quietly calling the live API --- green and
-    wrong is the worst state a test can be in.
-  \end{block}
 \end{frame}
 
-% ========== SLIDE 9: LIMITATIONS + FUTURE ============================
-\begin{frame}{Limitations \& what we'd do next}
-  \textbf{Where the system is brittle today}
-  \begin{itemize}\setlength\itemsep{0.25em}
-    \item \textbf{Answer correctness is not verified.} A fluent, correctly-cited, \emph{wrong}
-      answer passes every check we have --- we validate structure, never support.
-    \item \textbf{Retry hints are honoured, not anticipated.} The provider's ``retry in 21.9s''
-      message, and a \texttt{Retry-After} header when the message names no delay, are parsed and
-      waited --- but the first call still discovers a spent quota by being refused.
-    \item \textbf{Concurrency stops at the question boundary} --- the demo's five questions run
-      sequentially, and \texttt{MAX\_PARALLEL\_SOURCES} bounds sources within a question only.
-  \end{itemize}
-
-  \vspace{0.35em}
-  \textbf{Given another week we would}
-  \begin{enumerate}\setlength\itemsep{0.25em}
-    \item Add a token bucket per provider, so a quota is anticipated instead of discovered by
-      the first refused call.
-    \item Stream the synthesis, or overlap it with retrieval --- the \emph{only} change that
-      makes the concurrency work visible end to end (1.67$\times$ $\to$ a real end-to-end win).
-    \item Move PostgreSQL off \texttt{trust} auth to \texttt{scram-sha-256}, and add a grounding
-      check between each claim and its cited source.
-  \end{enumerate}
+% 07 — concurrency
+\renewcommand{\speaker}{Elmin995}
+\begin{frame}{Mənbə sorğularının paralel icrası}
+  \lead{Şəbəkə gözləmələri üst-üstə salınır; eyni vaxtda icra olunan sorğuların sayı semaforla məhdudlaşdırılır.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.49\linewidth}
+      \begin{tikzpicture}[x=0.65cm,y=0.8cm]
+        \draw[->,thick] (0,0) -- (6.5,0) node[right,font=\scriptsize] {vaxt};
+        \node[left,font=\small] at (0,2.4) {Wiki};
+        \node[left,font=\small] at (0,1.5) {arXiv};
+        \node[left,font=\small] at (0,0.6) {Veb};
+        \fill[teal] (0,2.1) rectangle (5.4,2.6);
+        \fill[orange] (0,1.2) rectangle (2.9,1.7);
+        \fill[green] (0,0.3) rectangle (1.7,0.8);
+        \node[below,font=\scriptsize] at (2.6,-0.1) {eyni başlanğıc};
+      \end{tikzpicture}\par
+      \vspace{1mm}
+      \small Bitmə sırası fərqli ola bilər; nəticələr \texttt{gather} tərəfindən giriş sırası ilə qaytarılır.
+    \column{0.48\linewidth}
+      \begin{panel}
+        \small\textbf{\texttt{asyncio.Semaphore}}\par
+        Eyni anda ən çox \texttt{MAX\_PARALLEL\_SOURCES} çağırışının icrasına icazə verilir.
+      \end{panel}
+      \vspace{2mm}
+      \begin{aquapanel}
+        \small\textbf{\texttt{asyncio.gather}}\par
+        Bütün çağırışlar gözlənilir; bir xətaya görə digər nəticələrin itirilməsi dayandırılır.
+      \end{aquapanel}
+  \end{columns}
 \end{frame}
 
-% ========== SLIDE 10: CONTRIBUTIONS ==================================
-\begin{frame}{Contributions}
-  \small
+% 08 — deadlines and degradation
+\begin{frame}[fragile]{Mənbə cavab vermədikdə}
+  \lead{Hər mənbə ayrıca nəticə kimi qeydə alınır; bir gecikməyə görə digər materiallar itirilmir.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.53\linewidth}
+      \begin{lstlisting}[style=project,basicstyle=\ttfamily\scriptsize]
+async with deadline(
+    self._settings.per_source_timeout_seconds,
+    source=source.value
+):
+      \end{lstlisting}
+      \small Bu blokda axtarış və təkrar cəhdlər \texttt{execute} tərəfindən idarə edilir.
+      \tinyref{researcher/services/ai\_service.py — fetch\_source}
+    \column{0.44\linewidth}
+      \begin{panel}
+        \small Wiki: \textcolor{green}{uğur}\par
+        arXiv: \textcolor{red}{vaxt aşımı}\par
+        Veb: \textcolor{green}{uğur}
+      \end{panel}
+      \vspace{2mm}
+      \small Qismən nəticə qaytarıla bilər. Vaxt büdcəsinə axtarış və retry daxildir; keş əməliyyatları daxil deyil.
+  \end{columns}
+\end{frame}
+
+% 09 — retries
+\begin{frame}[fragile]{HTTP 429 cavabının emalı}
+  \lead{Provayder tərəfindən göstərilən gözləmə müddəti tətbiqin qısa backoff müddətindən üstün tutulur.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.50\linewidth}
+      \begin{amberpanel}
+        \textbf{Müşahidə olunmuş hal: HTTP 429}\par
+        Gemini kvotası dolduqda qısa retry cəhdləri eyni vaxt pəncərəsində yenidən rədd edilirdi.
+      \end{amberpanel}
+      \vspace{3mm}
+      \small Gecikmə mesajdan oxunur; orada tapılmadıqda \texttt{Retry-After} başlığı yoxlanılır.
+    \column{0.47\linewidth}
+      \begin{lstlisting}[style=project,basicstyle=\ttfamily\scriptsize]
+retry_after = (
+    exc.retry_after_seconds if isinstance(exc, UpstreamRateLimitError) else None
+)
+      \end{lstlisting}
+      \begin{aquapanel}
+        \small \textbf{Qayda:} jitterli backoff ilə provayder gecikməsindən daha böyük olan müddət seçilir.
+      \end{aquapanel}
+  \end{columns}
+\end{frame}
+
+% 10 — cache
+\begin{frame}{Təkrar sorğuların keşlə azaldılması}
+  \lead{Hazır cavab deyil, hər mənbədən alınmış axtarış nəticəsi məhdud müddətə saxlanılır.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.51\linewidth}
+      \begin{tikzpicture}[node distance=3mm]
+        \node[flow,text width=46mm] (k) {5 hissəli keş açarı};
+        \node[flow,below=of k,text width=46mm,fill=aqua] (hit) {Təzə qeyd $\rightarrow$ istifadə edilir};
+        \node[flow,below=of hit,text width=46mm,fill=amber,draw=orange] (miss) {Qeyd yoxdur $\rightarrow$ canlı axtarış};
+        \draw[arr] (k) -- (hit);
+        \draw[arr] (hit) -- (miss);
+      \end{tikzpicture}
+    \column{0.46\linewidth}
+      \begin{panel}
+        \small\textbf{Açar =} mənbə + normallaşmış sual + provayder + nəticə həddi + sxem versiyası.
+      \end{panel}
+      \vspace{2mm}
+      \small Oxu xətası alındıqda canlı axtarışa keçilir. \texttt{C} və \texttt{C*} sualları hələ qarışdırıla bilər.
+  \end{columns}
+  \vspace{1mm}
+  \tinyref{CacheKey: researcher/models.py; oxu və yazı: researcher/services/orchestrator.py.}
+\end{frame}
+
+% 11 — AI boundary
+\begin{frame}[fragile]{AI xidməti ilə inteqrasiya}
+  \lead{Provayderə aid çağırış və xətalar bir xidmət qatında tətbiqin daxili formatına çevrilir.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.52\linewidth}
+      \begin{tikzpicture}[node distance=3mm]
+        \node[flow,text width=39mm] (core) {ResearchService};
+        \node[flow,below=of core,text width=39mm] (svc) {AIService\\\scriptsize retry + deadline + xəta tərcüməsi};
+        \node[source,below=of svc,text width=39mm,fill=amber,draw=orange] (ai) {verilmiş \texttt{ai/}\\\scriptsize fetch + synthesize};
+        \draw[arr] (core) -- (svc);
+        \draw[arr] (svc) -- (ai);
+      \end{tikzpicture}
+    \column{0.45\linewidth}
+      \textbf{Sinxron sintez çağırışı}\par
+      \begin{lstlisting}[style=project,basicstyle=\ttfamily\scriptsize]
+return await asyncio.to_thread(
+    _call_synthesize, question,
+    list(materialised), llm
+)
+      \end{lstlisting}
+      \small Çağırış ayrıca thread-də icra edilir; timeout baş verdikdə thread dərhal dayandırılmır.
+  \end{columns}
+  \vspace{1mm}
+  \tinyref{Wikipedia fulltext axtarışı MediaWiki-yə birbaşa gedir; verilmiş \texttt{ai/} dəyişdirilməyib.}
+\end{frame}
+
+% 12 — storage
+\renewcommand{\speaker}{fatimekazimli}
+\begin{frame}[fragile]{Məlumatların PostgreSQL-də saxlanması}
+  \lead{Mənbə keşi və tamamlanmış tədqiqat sessiyası ayrı məqsədlər üçün saxlanılır.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.49\linewidth}
+      \begin{aquapanel}
+        \textbf{source\_cache}\par
+        \small Açarın 5 hissəsi + JSONB məzmun + bitmə vaxtı.
+      \end{aquapanel}
+      \vspace{2mm}
+      \begin{panel}
+        \scriptsize \textbf{Əsas açar:} source + query + provider + max\_results + schema\_version
+      \end{panel}
+    \column{0.48\linewidth}
+      \begin{panel}
+        \textbf{research\_sessions}\par
+        \small UUID + vaxt + status + sual + bütün nəticəni saxlayan JSONB.
+      \end{panel}
+      \vspace{2mm}
+      \small Eyni müqavilənin PostgreSQL və yaddaş variantında qorunması \texttt{SourceCache} və \texttt{SessionRepository} Protocol-ları ilə təmin edilir.
+  \end{columns}
+  \vspace{2mm}
+  \tinyref{migrations/001\_initial\_schema.sql; researcher/storage/interfaces.py və postgres.py.}
+\end{frame}
+
+% 13 — runtime/deployment
+\begin{frame}{Tətbiqin işə salınması}
+  \lead{Sazlama və resurslar bootstrap mərhələsində yaradılır, çıxış zamanı bağlantılar bağlanır.}
   \begin{center}
-  \begin{tabularx}{\linewidth}{lXl}
-    \toprule
-    \textbf{Member} & \textbf{Primary ownership} & \textbf{Work share} \\
-    \midrule
-    \memberone & Application: architecture, services, storage, CLI, tests, container, report, docs & 80\,\% \\
-    \membertwo & Clean-clone reproduction on a second machine (Brief B), the artefact and its diagnosis & 10\,\% \\
-    \memberthree & Peer review of PRs \#11 and \#12: approvals and inline comments & 10\,\% \\
-    \bottomrule
-  \end{tabularx}
+  \begin{tikzpicture}[node distance=5mm]
+    \node[flow,text width=35mm] (cli) {CLI\\\scriptsize \texttt{python -m researcher ask}};
+    \node[flow,right=of cli,text width=35mm] (boot) {Bootstrap\\\scriptsize sazlama + resurslar};
+    \node[flow,right=of boot,text width=35mm] (app) {ResearchService\\\scriptsize sorğu və nəticə};
+    \draw[arr] (cli) -- (boot);
+    \draw[arr] (boot) -- (app);
+    \node[source,below=7mm of boot,text width=35mm] (pg) {PostgreSQL\\\scriptsize Docker Compose və ya ayrıca};
+    \draw[arr] (boot) -- (pg);
+  \end{tikzpicture}
   \end{center}
-
-  \vspace{0.2em}
-  Git history attributes the application commits to ii1ahe and one reproduction commit to
-  fatimekazimli. Elmin's contribution is recorded in PR reviews; the percentages estimate work,
-  not commit counts.
-
-  \vspace{0.25em}
-  \begin{block}{We can answer for:}
-    Any file in the repo; the reproduction evidence and its diagnosis; the reviews on the PRs.
-  \end{block}
-
-  \vspace{0.15em}
-  \textbf{AI tool use:} Claude drafted code, tests and documentation; OpenAI Codex checked final
-  document consistency. The team must explain the code and its remaining gaps.
+  \vspace{-1mm}
+  \begin{amberpanel}
+    \small \textbf{İşləmə şərtləri:} canlı cavab üçün internet və API açarı tələb edilir. PostgreSQL qurulmadıqda bazasız rejim istifadə olunur. \texttt{PERSIST\_SESSIONS=false} yalnız sessiya yazısını söndürür.
+  \end{amberpanel}
 \end{frame}
 
-% ========== SLIDE 11: THANK YOU / Q&A ================================
-{%
-\setbeamertemplate{footline}{}
-\begin{frame}[plain]
-  \begin{center}
-    \vspace{1cm}
-    {\Huge\bfseries\color{accent} Questions?}\\[1.2em]
-    \rule{0.5\textwidth}{0.6pt}\\[1.2em]
-    {\large \topicchoice}\\[0.6em]
-    {\normalsize \texttt{\repolink}}\\[1cm]
-    {\footnotesize\itshape ``We can walk through any file in the repo.''}
-  \end{center}
+% 14 — tests
+\begin{frame}{Test nəticələri və onların sərhədi}
+  \lead{Tətbiqin idarə edilən davranışı yoxlanılır; xarici provayderin daimi əlçatanlığı bu nəticələrlə təsdiqlənmir.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.31\linewidth}
+      \begin{aquapanel}\metric{380}{test; PostgreSQL olduqda hamısı keçirilir}\end{aquapanel}
+    \column{0.31\linewidth}
+      \begin{aquapanel}\metric{96\%}{\texttt{researcher/} sətir əhatəsi}\end{aquapanel}
+    \column{0.31\linewidth}
+      \begin{aquapanel}\metric{16/16}{verilmiş \texttt{ai/} smoke testləri}\end{aquapanel}
+  \end{columns}
+  \vspace{5mm}
+  \begin{panel}
+    \small \textbf{Test quruluşu:} AI və HTTP cavabları saxtalaşdırılır; internet çıxışı fixture ilə bloklanır; PostgreSQL olmadıqda 8 inteqrasiya testi səbəb göstərilərək buraxılır.
+  \end{panel}
+  \vspace{2mm}
+  \tinyref{Əhatə faizi cavabın fakt doğruluğu faizi deyil.}
 \end{frame}
-}
+
+% 15 — benchmark
+\begin{frame}{Benchmark nəticələri}
+  \lead{Mənbə toplama mərhələsi sürətlənir; ümumi vaxtın böyük hissəsi AI sintezinə sərf edilir.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.54\linewidth}
+      \textbf{Beş sual üzrə mərhələ cəmi}\par\vspace{3mm}
+      \small Axtarış, ardıcıl \quad 4,83 s\par
+      {\color{orange}\rule{49mm}{4mm}}\par\vspace{2mm}
+      \small Axtarış, paralel \quad 2,89 s\par
+      {\color{teal}\rule{29mm}{4mm}}\par\vspace{3mm}
+      \small Bütöv icra \quad 43,45 s $\rightarrow$ 43,33 s
+    \column{0.43\linewidth}
+      \begin{aquapanel}
+        \metric{1,67$\times$}{mənbə toplama sürəti}
+      \end{aquapanel}
+      \vspace{2mm}
+      \begin{amberpanel}
+        \metric{1,00$\times$}{bütöv icra sürəti}
+      \end{amberpanel}
+  \end{columns}
+  \vspace{3mm}
+  \tinyref{12 sentyabr artefaktı: 5 sual, 3 mənbə, keş söndürülüb, 0 mənbə xətası; model gemini-3.6-flash. 10 s sualarası fasilə mərhələ vaxtlarına daxil deyil.}
+\end{frame}
+
+% 16 — reproduction
+\begin{frame}{Təmiz mühitdə reproduksiya}
+  \lead{Tətbiqin başqa mühitdə qurulması və test edilməsi ilə reproduksiya qabiliyyəti yoxlanılır.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.49\linewidth}
+      \begin{panel}
+        \textbf{Aparılmış yoxlama}\par\vspace{2mm}
+        \small GitHub Codespaces-də təmiz klon yaradılıb, Docker image qurulub, smoke və tam test dəstləri icra edilib.
+      \end{panel}
+      \vspace{2mm}
+      \small Həmin köhnə commitdə 349 test keçdi, 7 baza testi şəbəkə səbəbindən buraxıldı.
+    \column{0.48\linewidth}
+      \begin{amberpanel}
+        \textbf{Qeydə alınmış problem}\par\vspace{2mm}
+        \small Əlçatan olmayan baza üçün bağlantı cəhdi təxminən 60 saniyə davam edirdi.
+      \end{amberpanel}
+      \vspace{2mm}
+      \small Sonrakı düzəlişdə bağlantının açılmasına 10 saniyəlik hədd verilib; bu, ayrıca SQL sorğusunun həddi deyil.
+  \end{columns}
+  \vspace{3mm}
+  \tinyref{Sübut: artefacts/reproduction-codespaces-bfec78.txt. Orada canlı AI cavabı yoxlanmamışdı.}
+\end{frame}
+
+% 17 — live run
+\renewcommand{\speaker}{ii1ahe}
+\begin{frame}{Canlı icranın nəticəsi}
+  \lead{18 sentyabrda real mənbələrdən material toplanıb, istinadlı cavab yaradılıb və sessiya PostgreSQL-də saxlanılıb.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.55\linewidth}
+      \begin{panel}
+        \textbf{Fotosintez sualı}\par\vspace{2mm}
+        \small 3 mənbə $\rightarrow$ 8 təkrarsız nəticə $\rightarrow$ istinadlı cavab\par
+        \small Qeydə alınmış istinadlar: \textbf{[1], [7], [8]}\par
+        \small Sessiya: \textcolor{green}{PostgreSQL-də saxlanılıb}
+      \end{panel}
+    \column{0.42\linewidth}
+      \begin{aquapanel}\metric{1,51 s}{mənbə toplama}\end{aquapanel}
+      \vspace{2mm}
+      \begin{aquapanel}\metric{3,46 s}{AI sintezi}\end{aquapanel}
+      \vspace{2mm}
+      \small İki mərhələnin cəmi: \textbf{4,97 s}.
+  \end{columns}
+  \vspace{1mm}
+  \tinyref{18 sentyabr / gemini-3.1-flash-lite / tək icra; beş suallıq benchmark deyil.}
+\end{frame}
+
+% 18 — limitations
+\begin{frame}{Mövcud məhdudiyyətlər}
+  \lead{Test və istinad yoxlamaları cavabın faktiki doğruluğuna zəmanət vermir.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.48\linewidth}
+      \begin{amberpanel}
+        \textbf{Məzmun}\par
+        \small Düzgün nömrəli istinadla yanlış iddia təqdim edilə bilər. İddia–mənbə uyğunluğu ayrıca yoxlanılmalıdır.
+      \end{amberpanel}
+      \vspace{2mm}
+      \begin{amberpanel}
+        \textbf{Keş açarı}\par
+        \small \texttt{C} və \texttt{C*} hələ toqquşa bilər; versiya 1 köhnə qeydləri ayırmır.
+      \end{amberpanel}
+    \column{0.48\linewidth}
+      \begin{amberpanel}
+        \textbf{Baza gözləməsi}\par
+        \small SQL timeout var, lakin pool-dan bağlantı almaq ayrıca hədlənmir.
+      \end{amberpanel}
+      \vspace{2mm}
+      \begin{amberpanel}
+        \textbf{Sintez thread-i}\par
+        \small Coroutine vaxtı bitəndə xarici çağırış bir müddət daha işləyə bilər.
+      \end{amberpanel}
+  \end{columns}
+\end{frame}
+
+% 19 — contributions
+\renewcommand{\speaker}{hər üç üzv}
+\begin{frame}{Töhfələr və AI alətlərindən istifadə}
+  \lead{Təqdimat bölgüsü ilə kod müəllifliyi ayrılır; faktiki işlər repo tarixçəsi və töhfə bəyanatında göstərilir.}
+  \begin{columns}[T,onlytextwidth]
+    \column{0.31\linewidth}
+      \begin{panel}
+        \textbf{ii1ahe}\par\vspace{1mm}
+        \small Tətbiq, testlər, infrastruktur və sənədlərin əsas hissəsi hazırlanıb.
+      \end{panel}
+    \column{0.31\linewidth}
+      \begin{panel}
+        \textbf{Elmin995}\par\vspace{1mm}
+        \small PR \#11 və \#12 üzrə review aparılıb və qeydlər verilib.
+      \end{panel}
+    \column{0.31\linewidth}
+      \begin{panel}
+        \textbf{fatimekazimli}\par\vspace{1mm}
+        \small Təmiz klon reproduksiyası aparılıb və nəticə artefaktı hazırlanıb.
+      \end{panel}
+  \end{columns}
+  \vspace{5mm}
+  \begin{aquapanel}
+    \small \textbf{Açıqlama:} Claude-dan kod, test və ilkin sənəd qaralamalarında; OpenAI Codex-dən audit, düzəliş, canlı yoxlama və təqdimatın hazırlanmasında istifadə olunub. Faktiki rollar imzalı töhfə sənədində göstərilib.
+  \end{aquapanel}
+\end{frame}
 
 \end{document}

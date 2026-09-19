@@ -235,6 +235,11 @@ disclosed; **1** when no usable answer was produced, or a session configured for
 storage was not stored; **2** for bad input or bad configuration — the cases
 where retrying unchanged would spend quota to learn nothing.
 
+One complete uncached execution against the real providers is preserved in
+[`artefacts/sample-run.md`](artefacts/sample-run.md). It contains the cited
+answer, per-source outcomes and timings, and the PostgreSQL persistence check;
+no credentials are recorded.
+
 ## Sequential vs concurrent benchmark
 
 ```bash
@@ -360,7 +365,7 @@ pip-audit -r requirements.txt
 │   └── bench.py           # the sequential-vs-concurrent benchmark
 ├── migrations/
 │   └── 001_initial_schema.sql
-├── artefacts/             # benchmark output, as submitted
+├── artefacts/             # benchmark, audit, reproduction and full-run evidence
 ├── docs/
 │   ├── architecture.md    # ADRs, module contracts, phase roadmap
 │   ├── security.md        # security posture, gaps, hardening notes
@@ -369,7 +374,7 @@ pip-audit -r requirements.txt
 ├── Dockerfile             # multi-stage; the image the demo runs from
 ├── compose.yaml           # the application plus its PostgreSQL
 ├── report/                # report.tex + compiled report.pdf
-├── slides/                # slides.tex + compiled slides.pdf
+├── slides/                # slides.tex + compiled PDF + Azerbaijani speaker runbook
 ├── CONTRIBUTION_STATEMENT.md
 ├── pyproject.toml         # packaging + ruff/mypy config
 ├── requirements.txt       # pinned runtime
@@ -379,9 +384,12 @@ pip-audit -r requirements.txt
 └── README.md
 ```
 
-All eight phases are merged. The report is 10 pages, the deck is 11 frames,
-and every number in both is traceable to `artefacts/bench.json`, a test run,
-or the container.
+All eight phases are merged. The report is 10 pages. The Azerbaijani defense
+deck has 19 presentation frames. Its expanded word-for-word narration,
+followed for every slide by process and terminology explanations, is in
+[`slides/DEFENSE_RUNBOOK_AZ.md`](slides/DEFENSE_RUNBOOK_AZ.md). Benchmark
+figures in the deck come from `artefacts/bench.json`; the separate live-run
+example is identified as one 2026-09-18 verification, not a new benchmark.
 
 ## Architecture in one diagram
 
