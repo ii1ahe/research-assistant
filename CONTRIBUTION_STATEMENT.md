@@ -10,13 +10,13 @@
 **Topic:** Topic 4 — Async Research Assistant
 **Repository:** [https://github.com/ii1ahe/research-assistant](https://github.com/ii1ahe/research-assistant)
 **Final tag:** `v1.0-final`
-**Submission date:** 2026-09-18
+**Submission date:** 2026-09-19
 
 ---
 
 ## Submission type: three members
 
-At the final tag, Git history records **24 commits: 22 by `ii1ahe`, one by
+At the final tag, Git history records **25 commits: 23 by `ii1ahe`, one by
 `fatimekazimli`, and one by `Elmin995`**. Git history attributes the application
 commits to `ii1ahe` and one clean-clone reproduction commit to
 `fatimekazimli`. `Elmin995`'s contribution
