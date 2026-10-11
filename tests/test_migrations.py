@@ -1,13 +1,4 @@
-"""Migration discovery and the append-only guarantee.
-
-These are schema concerns rather than storage behaviour, so they live apart from
-``test_storage.py`` — which also keeps them free of that module's async marker,
-since nothing here needs an event loop.
-
-Discovery is tested against temporary directories, so the whole module runs
-offline. The one test that needs a live database is in ``test_storage.py``
-alongside the other PostgreSQL integration tests.
-"""
+"""Checks migration discovery and the rule that applied migration files must not change."""
 
 from __future__ import annotations
 
@@ -20,12 +11,7 @@ from researcher.storage.postgres import discover_migrations, migrations_dir
 
 
 def test_default_directory_is_the_repository_root() -> None:
-    """Migrations are found relative to the package, not the working directory.
-
-    Resolving from ``__file__`` is what lets the CLI be invoked from anywhere;
-    resolving from the current directory would work in a shell at the repo root
-    and fail everywhere else, including in the container.
-    """
+    """Migrations are found relative to the package, not the working directory."""
     target = migrations_dir()
     assert target.name == "migrations"
     assert target.is_dir()

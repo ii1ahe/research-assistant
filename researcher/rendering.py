@@ -1,25 +1,4 @@
-"""Turning a :class:`ResearchResult` into text a person can read.
-
-The split this module exists to enforce is between what the user *asked for* and
-what *happened*. The answer and its numbered references are the product; source
-outcomes, warnings and timings are the report. They leave by different streams —
-:func:`render_answer` to stdout, :func:`render_diagnostics` to stderr — so that
-``researcher ask "…" > answer.md`` writes a file worth keeping instead of one
-with a timing table stapled to the bottom.
-
-Both functions are pure: they return strings and print nothing. That is what
-makes them testable without capturing a stream, and it keeps the choice of
-stream in one place, in ``cli.py``.
-
-One rule is load-bearing and is why references are built from
-``result.answer.citations`` and never from ``result.outcomes``. A source that
-failed is *reported*, and a source that returned nothing is *reported*, but
-neither may appear as a numbered reference. A citation number that resolves to
-something the answer did not use is worse than no citation at all — it is a
-citation that lies. ADR-005 states this as a requirement; the adjacency of the
-two fields in :class:`~researcher.models.ResearchResult` is exactly what would
-make it easy to violate.
-"""
+"""Formats answers, numbered references, source status, warnings, and timing for terminal output."""
 
 from __future__ import annotations
 
@@ -89,17 +68,9 @@ def render_answer(result: ResearchResult) -> str:
 
 
 def _render_references(answer: AnswerWithCitations) -> list[str]:
-    """Render the numbered reference list, in citation order.
-
-    Snippets are deliberately omitted. They are carried on the source and are
-    archived with the session, but a terminal answer is read, not studied — the
-    URL is what a reader follows, and the supplied ``to_dict`` drops snippets at
-    the same boundary for the same reason.
-    """
+    """Render the numbered reference list, in citation order."""
     if not answer.citations:
-        # A defensible outcome: the model may answer from the sources without
-        # marking them. Saying so is better than an empty heading the reader
-        # would take for a rendering bug.
+        # An answer may contain no citation markers; say so in the output.
         return ["References", "none — the answer cites no sources."]
 
     lines = ["References"]
@@ -147,8 +118,7 @@ def _source_line(outcome: SourceOutcome) -> str:
 def _source_detail(outcome: SourceOutcome) -> str:
     """Describe what a source produced, in the order a reader cares about it."""
     if outcome.failure is not None:
-        # The code, not the message: the message is already a warning below, and
-        # a provider's text is not something to put in a table cell.
+        # Show only the error code in the table; the warning below carries the message.
         return outcome.failure.code
 
     if outcome.status is SourceStatus.EMPTY:

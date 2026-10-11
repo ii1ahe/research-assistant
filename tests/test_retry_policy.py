@@ -1,10 +1,4 @@
-"""The retry policy itself: bounds, backoff schedule and classification.
-
-Kept apart from ``test_resilience.py`` because none of it needs an event loop —
-the policy is pure arithmetic and one ``isinstance`` chain, and testing it
-without a loop keeps the async half of the suite about concurrency. The split
-is also what stops a module-level asyncio mark from landing on sync tests.
-"""
+"""Checks retry settings, delay limits, and which errors should be retried."""
 
 from __future__ import annotations
 
@@ -20,9 +14,7 @@ from researcher.errors import (
 )
 from researcher.services.resilience import RetryPolicy
 
-# ---------------------------------------------------------------------------
 # Validation
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("max_attempts", [0, -1])
@@ -43,9 +35,7 @@ def test_policy_rejects_a_max_backoff_below_the_initial_one() -> None:
         RetryPolicy(initial_backoff=4.0, max_backoff=1.0)
 
 
-# ---------------------------------------------------------------------------
 # Backoff schedule
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -59,13 +49,7 @@ def test_backoff_ceiling_doubles_then_saturates(attempt: int, expected: float) -
 
 @pytest.mark.parametrize("attempt", [1_025, 10_000, 10**9])
 def test_a_large_attempt_number_saturates_instead_of_overflowing(attempt: int) -> None:
-    """``2.0 ** n`` raises ``OverflowError`` from n = 1024.
-
-    The naive ``min(max_backoff, initial * 2 ** (attempt - 1))`` therefore
-    crashes rather than returning the cap, because the clamp is never reached.
-    A retry loop that has been told to be patient must not die of impatience
-    with big numbers.
-    """
+    """``2.0 ** n`` raises ``OverflowError`` from n = 1024."""
     assert RetryPolicy(initial_backoff=0.5, max_backoff=8.0).backoff_ceiling(attempt) == 8.0
 
 
@@ -82,9 +66,7 @@ def test_a_zero_max_backoff_stays_zero() -> None:
     assert policy.backoff_ceiling(100) == 0.0
 
 
-# ---------------------------------------------------------------------------
 # Classification
-# ---------------------------------------------------------------------------
 
 
 def test_retryable_errors_are_retried() -> None:

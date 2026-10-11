@@ -1,11 +1,4 @@
-"""PostgreSQL implementation of the research-session store.
-
-A session is stored as one JSON document reconstructed into
-:class:`~researcher.models.ResearchSession` on read. The three scalar columns
-alongside it are denormalised copies used by :meth:`list_recent` so it can order
-and limit without parsing every document; see the migration for why they are
-not constrained to the ``ResultStatus`` enumeration.
-"""
+"""Saves research sessions as JSON and reads individual or recent sessions from PostgreSQL."""
 
 from __future__ import annotations
 
@@ -34,10 +27,7 @@ ON CONFLICT (id) DO UPDATE SET
 
 _SELECT_ONE = "SELECT payload FROM research_sessions WHERE id = $1"
 
-# `id` breaks ties so the order is total. Two sessions can share created_at:
-# the column has microsecond resolution, and a fast test can create several
-# within it. Without the tiebreaker, "newest first" would be arbitrary between
-# runs, and a test asserting order would pass or fail by luck.
+# Use id to keep ordering stable when sessions share a timestamp.
 _SELECT_RECENT = """
 SELECT payload
 FROM research_sessions
@@ -94,25 +84,14 @@ class PostgresSessionRepository:
             raise translate(exc, "loading a research session") from exc
 
     async def list_recent(self, *, limit: int = 20) -> Sequence[ResearchSession]:
-        """Return up to ``limit`` most recently created sessions, newest first.
+        """Return up to limit recent sessions, newest first.
 
         Args:
-            limit: Maximum number of sessions to return.
-
-        Returns:
-            The sessions, newest first.
+            limit: Maximum number of sessions; must be at least one.
 
         Raises:
-            ValueError: ``limit`` is less than one.
-            StorageError: The lookup failed, or a stored document does not
-                satisfy the model.
-
-        Note:
-            ``limit`` is checked here rather than passed through, because
-            PostgreSQL reads a negative ``LIMIT`` as *unlimited*. Without this
-            guard, ``list_recent(limit=-1)`` — an off-by-one with an otherwise
-            harmless-looking call — would return the entire table instead of
-            nothing.
+            ValueError: The limit is less than one.
+            StorageError: The query fails or stored data does not match the model.
         """
         if limit < 1:
             raise ValueError(f"limit must be at least 1, got {limit}")

@@ -1,30 +1,4 @@
-"""The application's only door into the supplied ``ai`` package.
-
-Everything outside this module talks to :class:`AIService`; nothing else imports
-``ai``. That rule buys three things at once.
-
-**Credentials reach the providers.** The supplied providers read ``os.getenv``
-directly, and nothing in this application loads ``.env`` into the process
-environment — ``pydantic-settings`` reads that file into :class:`~researcher.
-config.Settings` and stops there. Constructing each provider with an explicit
-``api_key`` and ``model`` is therefore the only path by which a configured
-credential arrives. Without this module the providers consult an empty
-environment and report "not set" no matter what ``.env`` says. The supplied
-factories (``ai.providers.factory.get_llm``, ``ai.sources.
-get_web_search_provider``) are exactly that path and are deliberately bypassed.
-
-**Failures arrive translated.** ``ai`` raises one coarse ``ProviderError`` for
-missing credentials, missing packages, network faults and provider errors alike,
-so it cannot be caught usefully as it stands. It is classified here, once,
-into the taxonomy in :mod:`researcher.errors` — which is also the only place
-that *can* classify it, since it is the only place that sees the original
-exception.
-
-**Blocking work stops blocking.** ``ai.synthesize`` is synchronous: it calls
-``LLMProvider.complete``, a blocking SDK call. Left on the event loop it would
-stall every concurrent source fetch for the length of the LLM round trip, which
-for this application is the whole point of the async design.
-"""
+"""Wraps the supplied AI calls with checked settings, deadlines, retries, and error handling."""
 
 from __future__ import annotations
 
@@ -65,14 +39,8 @@ __all__ = ["AIService"]
 
 logger = logging.getLogger(__name__)
 
-#: Substrings in a ``ProviderError`` message that mean "this was never
-#: configured", as opposed to "this failed just now". The supplied package uses
-#: one exception type for both, so the distinction has to be read off the text.
-#:
-#: Matched case-insensitively, and deliberately narrow. Anything unrecognised is
-#: treated as transient, because a genuine network fault is the common case and
-#: being wrong costs one wasted attempt — whereas wrongly calling a transient
-#: fault permanent would abandon a source that would have answered.
+# The supplied package uses one error type for setup and request failures.
+# Only known setup messages stop retries; unknown failures remain retryable.
 _MISCONFIGURATION_MARKERS = (
     "is not set",
     "is required",
@@ -82,10 +50,7 @@ _MISCONFIGURATION_MARKERS = (
     "expected anthropic",
 )
 
-#: Substrings in a ``ProviderError`` message that mean "throttled", as opposed
-#: to "failed just now". A throttle is worth naming even without a parseable
-#: delay, because it is the one upstream condition the policy must treat
-#: differently from a dropped connection.
+# Recognise rate limits even when the provider gives no retry delay.
 _THROTTLING_MARKERS = (
     "429",
     "resource_exhausted",
@@ -95,13 +60,7 @@ _THROTTLING_MARKERS = (
     "throttl",
 )
 
-#: Ways providers name the delay they ask us to wait *in prose*. Google's free
-#: tier says "Please retry in 21.9s"; a provider may also spell out
-#: ``Retry-After`` in the message text. A delay carried by a real HTTP header
-#: rather than by text is read separately, by :func:`_header_retry_after`.
-#: Units other than seconds are deliberately not matched: a value we cannot be
-#: sure about is better discarded than misread — the policy still retries on
-#: its own backoff without it.
+# Parse retry delays expressed in seconds. HTTP headers are checked separately.
 _RETRY_AFTER_PATTERNS = (
     re.compile(
         r"retry in\s+(?P<delay>\d+(?:\.\d+)?)\s*(?:s\b|secs?\b|seconds?\b)",
@@ -112,14 +71,7 @@ _RETRY_AFTER_PATTERNS = (
 
 
 def _retry_after_hint(text: str) -> float | None:
-    """Parse the delay a provider asks us to wait, when it names one.
-
-    The hint is read off the raw payload here because this function is only
-    called from :func:`_translate` — the classification boundary where the
-    payload still exists, and the one place allowed to read it. Only the
-    *number* is carried forward; the surrounding text is discarded with the
-    rest of the payload.
-    """
+    """Parse the delay a provider asks us to wait, when it names one."""
     for pattern in _RETRY_AFTER_PATTERNS:
         match = pattern.search(text)
         if match is None:
@@ -131,30 +83,16 @@ def _retry_after_hint(text: str) -> float | None:
 
 
 def _delay_from_response(exc: BaseException) -> float | None:
-    """Read a ``Retry-After`` delay off the response an exception carries.
-
-    Duck-typed on two public names — ``.response`` and ``.headers`` — because
-    that is what both SDKs this application can be pointed at expose
-    (``google.genai.errors.APIError``, ``anthropic.APIStatusError``), and
-    because importing either SDK here to say so would make the translation
-    layer depend on the very packages it exists to insulate the rest of the
-    application from. An object without those names simply yields no delay.
-
-    Only delta-seconds are read. ``Retry-After`` is also allowed to be an
-    HTTP-date, and converting one means trusting the local clock; see
-    :func:`_retry_after_hint` for why a value we cannot be sure of is dropped.
-    """
+    """Read a ``Retry-After`` delay off the response an exception carries."""
     try:
         response = getattr(exc, "response", None)
         headers = getattr(response, "headers", None)
         if headers is None:
-            # Not the SDK shape, but an exception carrying its own headers is
-            # cheap to support and costs nothing when it does not exist.
+            # Some exceptions expose headers directly rather than through a response.
             headers = getattr(exc, "headers", None)
         if headers is None:
             return None
-        # httpx and requests both compare header names case-insensitively; a
-        # plain mapping would not, so both spellings are tried.
+        # Plain mappings may use either header-name spelling.
         raw = headers.get("retry-after")
         if raw is None:
             raw = headers.get("Retry-After")
@@ -162,10 +100,7 @@ def _delay_from_response(exc: BaseException) -> float | None:
             return None
         delay = float(str(raw).strip())
     except Exception:
-        # Deliberately broad. This runs while an exception is already being
-        # handled, and a second failure here would replace the diagnosis with a
-        # traceback about the diagnosis. Nothing in the block above is worth
-        # failing a translation over, so every fault degrades to "no delay".
+        # A malformed retry hint must not hide the original provider failure.
         return None
     if not math.isfinite(delay) or delay < 0:
         return None
@@ -173,18 +108,7 @@ def _delay_from_response(exc: BaseException) -> float | None:
 
 
 def _header_retry_after(exc: BaseException) -> float | None:
-    """Walk the exception chain for a response carrying a ``Retry-After``.
-
-    The supplied providers wrap with ``raise ProviderError(...) from exc``, so
-    the SDK's own exception — and the HTTP response on it — survives as
-    ``__cause__``. That chain is the only route back to the header, and it is a
-    stable one: it is standard Python exception chaining rather than anything
-    private to a provider.
-
-    The walk is bounded by identity, so a chain that loops — which a proxy
-    object or a badly behaved SDK could produce — terminates instead of hanging
-    inside the error path.
-    """
+    """Walk the exception chain for a response carrying a ``Retry-After``."""
     seen: set[int] = set()
     current: BaseException | None = exc
     while current is not None and id(current) not in seen:
@@ -197,23 +121,7 @@ def _header_retry_after(exc: BaseException) -> float | None:
 
 
 def _translate(exc: ProviderError, *, source: str) -> ResearcherError:
-    """Classify a supplied-package failure into this application's taxonomy.
-
-    A misconfiguration carries an actionable message that names the missing
-    variable and holds nothing sensitive, so it is passed through verbatim.
-    A throttle is recognised by its markers and by the delay the provider
-    asks for — parsed out here, while the payload still exists, into
-    :class:`~researcher.errors.UpstreamRateLimitError` so the retry policy can
-    honour it; neither the raw text nor the response travels. Anything else
-    may embed a provider payload or a URL, and is replaced with a generic
-    message — the original is kept as ``__cause__`` for the traceback, which
-    is where diagnostics belong. The same split is used by
-    :func:`researcher.storage._driver.translate`.
-
-    The delay is looked for in the message text first and in a ``Retry-After``
-    header only if the text names none, so a provider that states it in prose
-    keeps behaving exactly as it did before the header was read.
-    """
+    """Classify a supplied-package failure into this application's taxonomy."""
     text = str(exc)
     lowered = text.casefold()
     if any(marker in lowered for marker in _MISCONFIGURATION_MARKERS):
@@ -230,11 +138,7 @@ def _translate(exc: ProviderError, *, source: str) -> ResearcherError:
 
 
 class AIService:
-    """Credentials, retries, deadlines and translation around ``ai.*``.
-
-    Construct with :class:`~researcher.config.Settings`; everything else is
-    injected so tests can supply a fake client and a policy that does not sleep.
-    """
+    """Credentials, retries, deadlines and translation around ``ai.*``."""
 
     def __init__(
         self,
@@ -244,33 +148,25 @@ class AIService:
         retrieval_policy: RetryPolicy | None = None,
         synthesis_policy: RetryPolicy | None = None,
     ) -> None:
-        """Initialize the service.
+        """Set up provider settings and retry policies.
 
         Args:
-            settings: Validated application settings.
-            client: An HTTP client to use. When omitted one is built on first
-                use and closed by :meth:`aclose`. Pass one in to share it with
-                the rest of the application, which then owns closing it.
-            retrieval_policy: Retry policy for source fetches.
-            synthesis_policy: Retry policy for synthesis. Defaults to a policy
-                that does **not** retry timeouts.
+            settings: Checked application settings.
+            client: Shared HTTP client. The caller closes it; a client made here is
+                closed by aclose.
+            retrieval_policy: Retry policy for source requests.
+            synthesis_policy: Retry policy for answers; timeouts are not retried by default.
 
         Raises:
-            ConfigurationError: No credential is configured for the selected
-                LLM provider. Checked here rather than at first use because
-                every run ends in synthesis, so a missing key means retrieval
-                would spend the user's time on an answer that can never be
-                produced. The web-search credential is deliberately *not*
-                checked here — see :meth:`fetch_source`.
+            ConfigurationError: The selected LLM has no API key. Web credentials are
+                checked when that source is requested.
         """
         self._settings = settings
         self._client = client
         self._owns_client = False
-        #: A retried fetch is an idempotent GET, so a timeout is worth another
-        #: attempt.
+        # Fetching uses GET, so retrying a timed-out request is acceptable.
         self._retrieval_policy = retrieval_policy or RetryPolicy()
-        #: A timed-out synthesis may still be running upstream, and billing,
-        #: after the caller has given up — so it is abandoned, not repeated.
+        # A timed-out answer request may still run and be billed, so do not repeat it.
         self._synthesis_policy = synthesis_policy or RetryPolicy(retry_timeouts=False)
         self._llm: LLMProvider | None = None
         self._web: object | None = None
@@ -283,9 +179,7 @@ class AIService:
                 source="synthesis",
             )
 
-    # ------------------------------------------------------------------
     # Wiring
-    # ------------------------------------------------------------------
 
     @property
     def provider_identity(self) -> ProviderIdentity:
@@ -304,12 +198,7 @@ class AIService:
         return self._client
 
     def _llm_provider(self) -> LLMProvider:
-        """Build the configured LLM provider on first use, with explicit credentials.
-
-        Bypasses ``ai.providers.factory.get_llm``, which reads the provider, the
-        model and the key from ``os.environ`` — the environment this application
-        does not populate.
-        """
+        """Build the configured LLM provider on first use, with explicit credentials."""
         if self._llm is not None:
             return self._llm
 
@@ -332,12 +221,7 @@ class AIService:
         return self._llm
 
     def _web_provider(self) -> object:
-        """Build the configured search provider on first use, with an explicit key.
-
-        Bypasses ``ai.sources.get_web_search_provider`` for the same reason as
-        :meth:`_llm_provider`. DuckDuckGo needs no credential, so it is built
-        with none and is the one provider that is always available.
-        """
+        """Build the configured search provider on first use, with an explicit key."""
         if self._web is not None:
             return self._web
 
@@ -358,9 +242,7 @@ class AIService:
             self._web = DuckDuckGoProvider()
         return self._web
 
-    # ------------------------------------------------------------------
     # Retrieval
-    # ------------------------------------------------------------------
 
     async def fetch_source(
         self,
@@ -370,24 +252,6 @@ class AIService:
         max_results: int | None = None,
     ) -> SourceOutcome:
         """Retrieve from one source, and describe how it went.
-
-        Never raises for a source-level failure. A source that times out, is
-        unreachable, or is not configured produces an outcome recording that.
-        Raising instead would push the same decision — "carry on without this
-        one" — onto every call site, and would make partial success harder to
-        express than total failure.
-
-        A missing web-search credential is one of those source-level failures,
-        not a startup check like the LLM key. Someone running ``--sources
-        wiki,arxiv`` has a perfectly good reason not to hold a Tavily key, and
-        should not be blocked by one.
-
-        The deadline bounds the whole source, retries included, rather than
-        each attempt. A source gets ``per_source_timeout_seconds`` of wall clock
-        and no more, whatever it does with it. Retries therefore help the
-        failures that come back quickly — a refused connection, a 502 — and a
-        genuinely hung provider is abandoned at the deadline instead of being
-        retried into a multiple of it.
 
         Args:
             source: Which source to query.
@@ -415,8 +279,7 @@ class AIService:
 
         elapsed = time.perf_counter() - started
         if not sources:
-            # Distinct from an error on purpose: the provider answered, it just
-            # had nothing. That is a content problem, not an outage.
+            # An empty response is different from a failed request.
             logger.info("%s returned no usable results", source.value)
             return SourceOutcome(
                 source=source,
@@ -442,13 +305,6 @@ class AIService:
 
     async def _fetch(self, source: SourceName, query: str, max_results: int) -> list[Source]:
         """Make one attempt at one source.
-
-        The query reaches every fetcher untouched. Wikipedia's is the one place
-        that could have been an exception — the supplied search cannot answer a
-        question — and it is handled by choosing a different *fetcher* rather
-        than by rewriting the query, so a query that has been through this
-        method is still the query the user typed. See
-        ``researcher/services/wikipedia.py``.
 
         Raises:
             ResearcherError: Translated from the supplied package's
@@ -494,23 +350,10 @@ class AIService:
             ),
         )
 
-    # ------------------------------------------------------------------
     # Synthesis
-    # ------------------------------------------------------------------
 
     async def synthesize(self, question: str, sources: Sequence[Source]) -> AnswerWithCitations:
         """Produce a cited answer from ``sources``, off the event loop.
-
-        ``ai.synthesize`` is synchronous, so it is dispatched to a worker
-        thread. The consequence is that the deadline cannot stop it: the thread
-        runs to completion and the provider may still bill for it. The
-        alternative — calling it inline — would block every concurrent fetch,
-        defeating the concurrency the rest of the design is built around.
-
-        Because the deadline wraps the whole call rather than each attempt, a
-        timeout abandons synthesis outright and no retry decision is ever
-        reached; :attr:`RetryPolicy.retry_timeouts` is the second guard behind
-        that, for the case where an attempt reports a timeout itself.
 
         Args:
             question: The question, as the user typed it.
@@ -531,9 +374,7 @@ class AIService:
         """
         materialised = tuple(sources)
         if not materialised:
-            # ai.synthesize raises ValueError for this, but an empty list here
-            # means the caller skipped the no-sources check, which is a caller
-            # bug worth naming precisely.
+            # Reject an empty source list before calling the supplied answer generator.
             raise InvalidRequestError(
                 "cannot synthesise an answer without sources", source="synthesis"
             )
@@ -548,11 +389,7 @@ class AIService:
             try:
                 return await asyncio.to_thread(_call_synthesize, question, list(materialised), llm)
             except ProviderError as exc:
-                # Translated *inside* the retried operation, so ``execute`` sees
-                # a retryable ResearcherError. Translating out here instead — as
-                # this method first did — leaves the policy inert: the loop only
-                # retries ResearcherError, so a foreign ProviderError sails
-                # straight through it and nothing is ever retried.
+                # Translate inside the retry loop so the policy sees a ResearcherError.
                 raise _translate(exc, source="synthesis") from exc
 
         try:
@@ -565,18 +402,10 @@ class AIService:
 
         return validate_answer(answer, materialised)
 
-    # ------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
 
     async def aclose(self) -> None:
-        """Close the HTTP client, if this service built it.
-
-        Idempotent, and it logs rather than raises: it is called from ``finally``
-        blocks, where a raise would replace the failure that got us there. An
-        injected client is left open, because the caller that supplied it owns
-        its lifetime.
-        """
+        """Close the HTTP client, if this service built it."""
         client, self._client = self._client, None
         if client is None or not self._owns_client:
             return
@@ -588,12 +417,7 @@ class AIService:
 
 
 def _call_synthesize(question: str, sources: list[Source], llm: LLMProvider) -> AnswerWithCitations:
-    """Call ``ai.synthesize`` with an explicitly constructed provider.
-
-    A module-level function rather than a closure so the thread it runs on is
-    easy to point at in a traceback. Imported lazily so that importing this
-    module does not pull the synthesizer in.
-    """
+    """Call ``ai.synthesize`` with an explicitly constructed provider."""
     from ai.synthesizer import synthesize
 
     return synthesize(question, sources, llm=llm)

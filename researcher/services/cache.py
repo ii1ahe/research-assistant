@@ -1,27 +1,4 @@
-"""Caching retrieval results, without ever letting the cache break a run.
-
-The cache is an optimisation, so every failure it can produce has a correct
-answer that is merely slower — fetch the source, or store nothing. The one
-thing a cache failure must not do is end the request. Both operations here
-therefore catch :class:`~researcher.errors.StorageError` and hand it back as a
-value, leaving the caller to decide whether it is worth mentioning.
-
-The two directions are treated differently on purpose. A failed *read* is
-indistinguishable from a miss and is reported as one, because the fallback is
-exactly the work that would have happened anyway. A failed *write* is never
-silently discarded: a cache that has quietly stopped storing looks identical to
-a working one until the bill for re-fetching everything arrives.
-
-Useful caching also depends on getting the key right, which is why
-:class:`~researcher.models.CacheKey` carries the provider and the result limit
-and not just the query — see :meth:`Orchestrator._cache_key`.
-
-There is also a third case, neither a hit nor a fault: the application running
-with no database at all, which is what an unset ``DATABASE_URL`` means. That is
-expressed as a ``None`` store, and each method degrades to exactly the value its
-own failure path already returns — so "no cache configured" needs no special
-case anywhere above this module.
-"""
+"""Reads and writes cached sources, reports cache failures, and removes expired entries."""
 
 from __future__ import annotations
 
@@ -43,12 +20,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CacheLookup:
-    """What a cache read produced.
-
-    ``failure`` is set when the read could not be performed at all, which the
-    caller should report — but only after having treated the lookup as a miss
-    and fetched the source regardless.
-    """
+    """A cache read result. A storage failure is recorded and treated as a miss."""
 
     entry: CacheEntry | None = None
     failure: FailureDetail | None = None
@@ -72,11 +44,7 @@ class CacheWrite:
 
 
 def _detail(exc: StorageError) -> FailureDetail:
-    """Describe a storage failure without holding the live exception.
-
-    ``message`` is already safe — the storage boundary keeps driver text and the
-    DSN in ``__cause__`` rather than in the message a user would see.
-    """
+    """Describe a storage failure without holding the live exception."""
     return FailureDetail(
         code=exc.code,
         message=exc.message,
@@ -86,11 +54,8 @@ def _detail(exc: StorageError) -> FailureDetail:
 
 
 class CacheService:
-    """Reads and writes cached retrieval results, and reports what went wrong.
-
-    Raises nothing for a storage failure. The caller here is a retrieval path
-    that can always continue without the cache, and an exception there would
-    turn an optimisation into a dependency.
+    """Read and write cached sources. Storage failures are returned as details so retrieval can
+    continue.
     """
 
     def __init__(self, cache: SourceCache | None, settings: Settings) -> None:
@@ -140,11 +105,6 @@ class CacheService:
     ) -> CacheWrite:
         """Cache ``sources`` under ``key``.
 
-        An empty result is cached rather than skipped. "This query has no
-        results" is worth remembering: without it, every run repeats the lookup
-        that already came back empty, which is precisely the traffic a cache
-        exists to avoid. The TTL bounds how long that judgement stands.
-
         Args:
             key: Identity of the result being stored.
             sources: The sources to cache, in citation order.
@@ -171,11 +131,7 @@ class CacheService:
         return CacheWrite(stored=True)
 
     async def purge_expired(self, *, now: datetime | None = None) -> int:
-        """Delete entries that have expired. Returns how many were removed.
-
-        Housekeeping rather than part of a request path, so a failure here is
-        logged and reported as zero removals instead of propagating.
-        """
+        """Delete expired entries and return their count. Log a storage failure and return zero."""
         if self._cache is None:
             return 0
         try:
@@ -185,15 +141,7 @@ class CacheService:
             return 0
 
     async def purge_expired_strict(self, *, now: datetime | None = None) -> int:
-        """Delete expired entries, propagating a storage failure.
-
-        The request path uses :meth:`purge_expired`, which degrades a failed
-        purge to zero removals and a log line — correct there, where the purge
-        is housekeeping behind a fetch that will proceed regardless. A purge
-        *command* is the operation's whole purpose: its failure must reach the
-        caller, or the CLI would report a successful purge of a database that
-        just refused it.
-        """
+        """Delete expired entries for the CLI command. Let storage failures reach the caller."""
         if self._cache is None:
             return 0
         return await self._cache.purge_expired(now=now)

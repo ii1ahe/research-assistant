@@ -1,15 +1,4 @@
-"""Where the application's logs go, and how loudly.
-
-Sync tests, in their own module: ``configure_logging`` touches no event loop, and
-putting it in ``test_bootstrap.py`` alongside the async ones would mean marking
-either the whole file asynchronous or these four tests individually — and the
-first of those is how nine ``PytestWarning``s were earned in Phase 4.
-
-Every test here leaves the ``researcher`` logger as it found it, via
-``restore_researcher_logger``. That is not tidiness: ``configure_logging`` sets
-``propagate = False``, so a test that did not restore it would silence ``caplog``
-for everything that ran afterwards.
-"""
+"""Checks log levels, stderr output, and separation from the supplied package logger."""
 
 from __future__ import annotations
 
@@ -57,11 +46,7 @@ def test_a_quiet_level_actually_suppresses(make_settings: SettingsFactory) -> No
 
 
 def test_logging_is_scoped_to_our_own_namespace(make_settings: SettingsFactory) -> None:
-    """Turning on DEBUG for us must not turn it on for httpx and asyncpg.
-
-    Installing on the root logger would do exactly that, and the resulting
-    firehose is the usual reason people give up on DEBUG.
-    """
+    """Turning on DEBUG for us must not turn it on for httpx and asyncpg."""
     root = logging.getLogger()
     before = list(root.handlers)
 
@@ -73,11 +58,7 @@ def test_logging_is_scoped_to_our_own_namespace(make_settings: SettingsFactory) 
 def test_configuring_logging_twice_does_not_double_every_line(
     make_settings: SettingsFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """One record, one line, however many times setup runs.
-
-    A second handler — or an inherited root one — would print everything twice,
-    which reads as a bug in the application rather than in its setup.
-    """
+    """One record, one line, however many times setup runs."""
     logger = logging.getLogger("researcher")
 
     configure_logging(make_settings())

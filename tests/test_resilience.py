@@ -1,12 +1,4 @@
-"""Running an operation under a policy, and bounding it in time.
-
-The policy's own arithmetic lives in ``test_retry_policy.py``; this module is
-about what happens when it is applied — how many times the operation is called,
-what the waits between calls are, and what escapes at the end.
-
-Every test injects the sleep, so the backoff schedule is asserted exactly and
-the suite never waits for it.
-"""
+"""Checks retries, backoff, provider wait hints, cancellation, and deadlines."""
 
 from __future__ import annotations
 
@@ -36,9 +28,7 @@ class Recorder:
         self.delays.append(delay)
 
 
-# ---------------------------------------------------------------------------
 # Execution
-# ---------------------------------------------------------------------------
 
 
 async def test_success_on_the_first_attempt_does_not_sleep() -> None:
@@ -132,11 +122,7 @@ async def test_a_non_retryable_failure_stops_immediately() -> None:
 
 
 async def test_jitter_is_drawn_from_below_the_ceiling() -> None:
-    """Full jitter: the wait is spread over the interval, not pinned to its end.
-
-    Pinned backoff is what synchronises a retry storm — several sources failing
-    together would all return to the provider at the same instant.
-    """
+    """Full jitter: the wait is spread over the interval, not pinned to its end."""
     sleeper = Recorder()
 
     async def operation() -> str:
@@ -156,12 +142,7 @@ async def test_jitter_is_drawn_from_below_the_ceiling() -> None:
 
 
 async def test_cancellation_is_not_swallowed() -> None:
-    """A cancelled task must stay cancelled.
-
-    ``except ResearcherError`` deliberately does not catch ``CancelledError``,
-    which is a ``BaseException``. Catching it would break timeouts and shutdown
-    — and would look, from the outside, exactly like a retry.
-    """
+    """A cancelled task must stay cancelled."""
     sleeper = Recorder()
 
     async def operation() -> str:
@@ -244,18 +225,11 @@ async def test_the_attempt_tally_is_optional() -> None:
     assert await execute(operation, policy=RetryPolicy(), description="test") == "ok"
 
 
-# ---------------------------------------------------------------------------
 # Provider hints
-# ---------------------------------------------------------------------------
 
 
 async def test_a_provider_delay_larger_than_the_backoff_is_waited() -> None:
-    """The provider's own number beats ours when it is larger.
-
-    This is the fix for the measured throttle: a 21.9 s hint against a ≤0.5 s
-    backoff means all three attempts used to land in the same window. The wait
-    must be the hint, exactly, whatever the jitter draw says.
-    """
+    """The provider's own number beats ours when it is larger."""
     sleeper = Recorder()
     calls = 0
 
@@ -356,9 +330,7 @@ async def test_a_rate_limit_without_a_named_delay_uses_the_ordinary_backoff() ->
     assert sleeper.delays == [0.25]
 
 
-# ---------------------------------------------------------------------------
 # Deadlines
-# ---------------------------------------------------------------------------
 
 
 async def test_deadline_lets_a_prompt_operation_through() -> None:
@@ -367,11 +339,7 @@ async def test_deadline_lets_a_prompt_operation_through() -> None:
 
 
 async def test_deadline_raises_our_timeout_error_not_the_builtin() -> None:
-    """Callers see ``UpstreamTimeoutError``, and it carries the source.
-
-    ``asyncio.timeout`` raises the builtin ``TimeoutError``; letting that escape
-    would give the application two timeout types to reason about.
-    """
+    """Callers see ``UpstreamTimeoutError``, and it carries the source."""
     with pytest.raises(UpstreamTimeoutError) as caught:
         async with deadline(0.01, source="wikipedia"):
             await asyncio.sleep(5)
@@ -384,12 +352,7 @@ async def test_deadline_raises_our_timeout_error_not_the_builtin() -> None:
 
 
 async def test_deadline_measures_the_whole_block_not_each_step() -> None:
-    """It bounds *total* time in the block, which is what bounds a source.
-
-    Ten steps of 0.02s is 0.2s in total; any one of them is far inside the
-    0.05s deadline. Only a deadline that measures the whole block can fail
-    this, so it is the assertion that tells the two readings apart.
-    """
+    """It bounds *total* time in the block, which is what bounds a source."""
 
     async def steps() -> None:
         async with deadline(0.05, source="arxiv"):
@@ -408,14 +371,7 @@ async def test_a_researcher_error_inside_the_block_is_untouched() -> None:
 
 
 async def test_a_timeout_inside_execute_is_retried_by_default() -> None:
-    """A timeout raised by the deadline is a retryable error, so it is retried.
-
-    Stated as a test because it is the interaction between the two pieces, and
-    the interaction is what a reader would otherwise have to reconstruct. In the
-    application this is bounded by putting the deadline *outside* ``execute`` —
-    see ``AIService.fetch_source`` — so retries share one source-level budget
-    rather than each getting a fresh one.
-    """
+    """A timeout raised by the deadline is a retryable error, so it is retried."""
     attempts = Attempts()
     sleeper = Recorder()
     calls = 0

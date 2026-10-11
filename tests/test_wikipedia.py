@@ -1,16 +1,4 @@
-"""Wikipedia retrieval, against a mocked API.
-
-This module exists because the supplied fetcher cannot answer a question: it
-searches with ``opensearch``, which prefix-matches the whole query against
-article titles, so a natural-language question returns nothing. The tests here
-are therefore about two things at once — that the full-text search is what gets
-called, and that everything downstream of it behaves the way the supplied
-fetcher's callers already expect.
-
-The API is mocked with ``respx`` rather than by replacing the fetcher, because
-what is being tested *is* the request that goes out: which endpoint, which
-parameters, and whether the question survives the trip unedited.
-"""
+"""Checks Wikipedia requests and summary parsing against mocked HTTP responses."""
 
 from __future__ import annotations
 
@@ -57,17 +45,11 @@ def _article(title: str, extract: str = "An extract.", url: str | None = None) -
     return body
 
 
-# ---------------------------------------------------------------------------
 # The request that goes out
-# ---------------------------------------------------------------------------
 
 
 async def test_the_question_is_sent_to_the_full_text_search(respx_mock: respx.MockRouter) -> None:
-    """The whole fix in one assertion: ``list=search``, and the question verbatim.
-
-    Not a keyword, not a rewritten query. Full-text ranking is what handles the
-    natural-language form, so the query has nothing to be stripped down to.
-    """
+    """The whole fix in one assertion: ``list=search``, and the question verbatim."""
     route = respx_mock.get(SEARCH_URL).mock(return_value=Response(200, json=_search()))
     respx_mock.get(url__regex=SUMMARY_PATTERN).mock(return_value=Response(404))
 
@@ -84,12 +66,7 @@ async def test_the_question_is_sent_to_the_full_text_search(respx_mock: respx.Mo
 async def test_the_search_is_not_the_supplied_opensearch(
     respx_mock: respx.MockRouter,
 ) -> None:
-    """Guards the regression directly, since the symptom is silence.
-
-    Using the wrong API here does not raise — it returns an empty list, which
-    the application honestly reports as "no results". Nothing would look broken
-    except that Wikipedia never contributes anything.
-    """
+    """Guards the regression directly, since the symptom is silence."""
     route = respx_mock.get(SEARCH_URL).mock(return_value=Response(200, json=_search()))
     respx_mock.get(url__regex=SUMMARY_PATTERN).mock(return_value=Response(404))
 
@@ -120,9 +97,7 @@ async def test_a_blank_question_asks_the_api_nothing(respx_mock: respx.MockRoute
     assert not route.called
 
 
-# ---------------------------------------------------------------------------
 # What comes back
-# ---------------------------------------------------------------------------
 
 
 async def test_the_ranked_hits_become_sources(respx_mock: respx.MockRouter) -> None:
@@ -155,11 +130,7 @@ async def test_the_ranked_hits_become_sources(respx_mock: respx.MockRouter) -> N
 
 
 async def test_the_ranking_order_is_preserved(respx_mock: respx.MockRouter) -> None:
-    """Search order is the API's ranking, and it is carried through untouched.
-
-    ``max_results`` is applied by the API, so a source that asked for two gets
-    the *best* two rather than the first two to come back.
-    """
+    """Search order is the API's ranking, and it is carried through untouched."""
     respx_mock.get(SEARCH_URL).mock(
         return_value=Response(200, json=_search("First", "Second", "Third"))
     )
@@ -237,19 +208,13 @@ async def test_a_title_the_api_omits_is_ignored(respx_mock: respx.MockRouter) ->
     assert [source.title for source in sources] == ["Real"]
 
 
-# ---------------------------------------------------------------------------
 # Failures
-# ---------------------------------------------------------------------------
 
 
 async def test_a_search_failure_raises_so_the_caller_can_classify_it(
     respx_mock: respx.MockRouter,
 ) -> None:
-    """``ProviderError`` is the type ``AIService`` translates.
-
-    Raising the application's own error here would skip that classification and
-    leave the retry decision to a layer that cannot make it.
-    """
+    """``ProviderError`` is the type ``AIService`` translates."""
     respx_mock.get(SEARCH_URL).mock(return_value=Response(503))
 
     async with httpx.AsyncClient() as client:
@@ -267,9 +232,7 @@ async def test_a_search_response_that_is_not_json_is_a_provider_error(
             await fetch_wikipedia_fulltext(QUESTION, client=client)
 
 
-# ---------------------------------------------------------------------------
 # Client ownership
-# ---------------------------------------------------------------------------
 
 
 async def test_an_injected_client_is_left_open(respx_mock: respx.MockRouter) -> None:

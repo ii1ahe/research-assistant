@@ -1,12 +1,4 @@
-"""The cache, and the promise that it cannot break a request.
-
-The cache is an optimisation, so every test here is really asking the same
-question in a different way: when this goes wrong, does the run survive? A
-service that raised on a storage fault would turn an optimisation into a
-dependency, which is the failure mode these tests exist to prevent.
-
-Storage is the in-memory double from ADR-004, so nothing here needs a database.
-"""
+"""Checks cache reads, writes, expiry, missing storage, and reported cache failures."""
 
 from __future__ import annotations
 
@@ -42,9 +34,7 @@ def cache(make_settings: SettingsFactory) -> CacheService:
     return CacheService(InMemorySourceCache(), make_settings())
 
 
-# ---------------------------------------------------------------------------
 # Reading
-# ---------------------------------------------------------------------------
 
 
 async def test_an_empty_cache_reports_a_plain_miss(cache: CacheService) -> None:
@@ -57,11 +47,7 @@ async def test_an_empty_cache_reports_a_plain_miss(cache: CacheService) -> None:
 
 
 async def test_a_failed_read_is_a_miss_that_says_so(make_settings: SettingsFactory) -> None:
-    """Storage fault and nothing-stored are different, and both continue.
-
-    The caller treats them identically — fetch the source — but only one of them
-    is worth telling the user about, so they must be distinguishable.
-    """
+    """Storage fault and nothing-stored are different, and both continue."""
     service = CacheService(BrokenCache(), make_settings())
 
     lookup = await service.lookup(_key())
@@ -85,11 +71,7 @@ async def test_a_stored_result_is_returned(cache: CacheService) -> None:
 
 
 async def test_a_stored_result_is_scoped_to_its_whole_key(cache: CacheService) -> None:
-    """Every component of the key separates results, not just the query.
-
-    Two entries that differ only in the result limit must not be confused, or
-    asking for five results would serve three.
-    """
+    """Every component of the key separates results, not just the query."""
     await cache.store(_key(max_results=3), (make_source("wikipedia", 1),))
 
     assert not (await cache.lookup(_key(max_results=5))).hit
@@ -98,9 +80,7 @@ async def test_a_stored_result_is_scoped_to_its_whole_key(cache: CacheService) -
     assert (await cache.lookup(_key(max_results=3))).hit
 
 
-# ---------------------------------------------------------------------------
 # Writing
-# ---------------------------------------------------------------------------
 
 
 async def test_a_write_reports_success(cache: CacheService) -> None:
@@ -136,9 +116,7 @@ async def test_an_empty_result_is_cached(cache: CacheService) -> None:
     assert lookup.entry.sources == ()
 
 
-# ---------------------------------------------------------------------------
 # Freshness
-# ---------------------------------------------------------------------------
 
 
 async def test_an_entry_is_fresh_within_its_ttl(cache: CacheService) -> None:
@@ -172,9 +150,7 @@ async def test_a_zero_ttl_disables_caching_immediately(make_settings: SettingsFa
     assert not (await service.lookup(key)).hit
 
 
-# ---------------------------------------------------------------------------
 # Housekeeping
-# ---------------------------------------------------------------------------
 
 
 async def test_purging_removes_expired_entries(make_settings: SettingsFactory) -> None:
@@ -211,20 +187,11 @@ async def test_a_strict_purge_with_no_store_reports_nothing_removed(
     assert await service.purge_expired_strict() == 0
 
 
-# ---------------------------------------------------------------------------
 # No store at all
-# ---------------------------------------------------------------------------
 
 
 async def test_no_store_is_not_reported_as_a_failure(make_settings: SettingsFactory) -> None:
-    """Running without a database is a supported configuration, not a fault.
-
-    A store that is absent and a store that is broken both fail to return an
-    entry, and the caller does the same thing either way — fetch the source. The
-    difference is what the user is told. ``DATABASE_URL`` unset means there is
-    nothing to report, so the diagnostics stay clean; reporting a storage error
-    here would send someone hunting for a fault that does not exist.
-    """
+    """Running without a database is a supported configuration, not a fault."""
     service = CacheService(None, make_settings())
 
     lookup = await service.lookup(_key())

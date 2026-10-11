@@ -1,13 +1,5 @@
-"""Retrieval and synthesis, as outcomes rather than exceptions.
-
-Credential handling lives in ``test_ai_service_wiring.py``; this module is about
-what the service *does*. The organising claim is that a source failure is an
-outcome, not an exception — retrieval degrades per source, so every failure mode
-has to arrive as a :class:`~researcher.models.SourceOutcome` the caller can
-record and move past.
-
-Everything here is offline: the supplied fetchers and the synthesizer are
-replaced, so no socket is opened and no key is used.
+"""Checks retrieval and answer generation, including empty results, failures, timeouts, and
+cleanup.
 """
 
 from __future__ import annotations
@@ -61,19 +53,11 @@ def _answer(question: str, sources: list[Source]) -> AnswerWithCitations:
     )
 
 
-# ---------------------------------------------------------------------------
 # Retrieval outcomes
-# ---------------------------------------------------------------------------
 
 
 def patch_wikipedia(monkeypatch: pytest.MonkeyPatch, fake: Callable[..., object]) -> None:
-    """Patch both Wikipedia fetchers with a single fake.
-
-    ``AIService`` picks between the supplied ``ai`` fetcher and ours according
-    to ``WIKIPEDIA_SEARCH``. A test about retries, deadlines or client sharing
-    should not have to know which one that is, so both names get the fake. Tests
-    that *are* about the choice patch the two separately.
-    """
+    """Patch both Wikipedia fetchers with a single fake."""
     monkeypatch.setattr(ai_service_module, "fetch_wikipedia", fake)
     monkeypatch.setattr(ai_service_module, "fetch_wikipedia_fulltext", fake)
 
@@ -138,12 +122,7 @@ async def test_a_transient_provider_failure_is_recorded_not_raised(
 async def test_a_missing_credential_is_a_configuration_failure(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The same exception type as a network fault, classified differently.
-
-    ``ProviderError`` covers both, so the message is what separates them. Getting
-    this wrong is expensive in one direction only: retrying a missing key burns
-    the retry budget and cannot succeed.
-    """
+    """The same exception type as a network fault, classified differently."""
 
     async def fake(query: str, **kwargs: object) -> list[Source]:
         raise ProviderError("TAVILY_API_KEY is not set.")
@@ -281,12 +260,7 @@ async def test_each_source_kind_reaches_its_own_fetcher(
     setting: str,
     expected: str,
 ) -> None:
-    """Dispatch is by canonical name, and the sources must not be crossed.
-
-    Wikipedia has two possible fetchers, so both settings are asserted rather
-    than whichever one happens to be the default — the choice is a setting, and
-    a setting that silently stopped being honoured would otherwise go unnoticed.
-    """
+    """Dispatch is by canonical name, and the sources must not be crossed."""
     seen: list[str] = []
 
     def make(name: str) -> Callable[..., object]:
@@ -311,11 +285,7 @@ async def test_each_source_kind_reaches_its_own_fetcher(
 async def test_wikipedia_uses_the_fulltext_fetcher_unless_told_otherwise(
     make_settings: SettingsFactory,
 ) -> None:
-    """The default is the one that can answer a question, not the supplied one.
-
-    Asserted against the setting rather than by calling the fetcher, so this
-    stays true offline and does not depend on what Wikipedia currently returns.
-    """
+    """The default is the one that can answer a question, not the supplied one."""
     assert make_settings().wikipedia_search == "fulltext"
 
 
@@ -363,9 +333,7 @@ async def test_an_injected_client_is_used(
     await injected.aclose()
 
 
-# ---------------------------------------------------------------------------
 # Synthesis
-# ---------------------------------------------------------------------------
 
 
 async def test_synthesis_returns_a_validated_answer(
@@ -385,11 +353,7 @@ async def test_synthesis_returns_a_validated_answer(
 async def test_synthesis_does_not_block_the_event_loop(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``ai.synthesize`` is synchronous, so it must not run on the loop.
-
-    Proved by running a ticker concurrently: if synthesis were called inline,
-    the ticker would not advance at all for the duration of the blocking call.
-    """
+    """``ai.synthesize`` is synchronous, so it must not run on the loop."""
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
         time.sleep(0.1)  # stands in for the blocking SDK call
@@ -415,11 +379,7 @@ async def test_synthesis_does_not_block_the_event_loop(
 
 
 async def test_synthesis_without_sources_is_rejected(make_settings: SettingsFactory) -> None:
-    """Guarded here rather than left to ``ai.synthesize``'s ``ValueError``.
-
-    Reaching synthesis with nothing is a caller bug — the orchestrator should
-    have skipped it — so it is named as one.
-    """
+    """Guarded here rather than left to ``ai.synthesize``'s ``ValueError``."""
     with pytest.raises(InvalidRequestError, match="without sources"):
         await AIService(make_settings()).synthesize("a question", [])
 
@@ -427,12 +387,7 @@ async def test_synthesis_without_sources_is_rejected(make_settings: SettingsFact
 async def test_a_reordered_source_list_is_caught(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The validation is wired in, not merely available.
-
-    ``ai.synthesize`` binds each citation to ``sources[index - 1]`` when it
-    builds the answer, so a mismatch means the list was reordered afterwards and
-    every reference in the prose now points at the wrong source.
-    """
+    """The validation is wired in, not merely available."""
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
         return _answer(question, list(reversed(sources)))
@@ -447,20 +402,7 @@ async def test_a_reordered_source_list_is_caught(
 async def test_a_blank_answer_is_rejected(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch, blank: str
 ) -> None:
-    """An empty answer is not an answer, however well-formed its citations.
-
-    ``ai.synthesize`` returns whatever the model produced, and a model can
-    produce nothing: a truncated response, a safety filter, or an answer that
-    landed in a field the synthesizer does not read. The result is an
-    ``AnswerWithCitations`` with no prose — and the structural citation check
-    passes trivially, because there are no citations left to be inconsistent.
-    Left alone it is reported as a success, printed as a blank answer, and the
-    CLI exits 0 for a question that was never answered.
-
-    Only the blank case is rejected. An answer that says something but cites
-    nothing is still an answer the user can read, and refusing it would
-    discard work — the same partial-result reasoning the retrieval side uses.
-    """
+    """An empty answer is not an answer, however well-formed its citations."""
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
         return AnswerWithCitations(question=question, answer=blank, citations=[])
@@ -474,12 +416,7 @@ async def test_a_blank_answer_is_rejected(
 async def test_an_answer_without_citations_is_still_accepted(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The companion to the test above: the check must not overshoot.
-
-    Rejecting every uncited answer would be a much larger behavior change than
-    the one this fix is for, and would fail answers the synthesizer legitimately
-    produces when the sources do not support a citation.
-    """
+    """The companion to the test above: the check must not overshoot."""
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
         return AnswerWithCitations(
@@ -523,13 +460,7 @@ async def test_a_missing_synthesis_credential_is_a_configuration_error(
 async def test_building_the_provider_is_a_failure_point_too(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A missing SDK surfaces at construction, as the same coarse error.
-
-    The provider is built outside the retry loop and outside the deadline, so
-    nothing else would classify it — and a foreign exception escaping from
-    ``synthesize`` would break the module's contract that callers only ever
-    catch ``ResearcherError``.
-    """
+    """A missing SDK surfaces at construction, as the same coarse error."""
 
     class Exploding:
         def __init__(self, model: str | None = None, *, api_key: str | None = None) -> None:
@@ -546,12 +477,7 @@ async def test_building_the_provider_is_a_failure_point_too(
 async def test_a_synthesizer_value_error_becomes_an_invalid_request(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The supplied synthesizer signals bad input with a bare ``ValueError``.
-
-    Translated so a caller has one taxonomy rather than two, and so a malformed
-    question is not misreported as an upstream outage — which is the wrong thing
-    to tell someone whose input was simply too long.
-    """
+    """The supplied synthesizer signals bad input with a bare ``ValueError``."""
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
         raise ValueError("question must be non-empty")
@@ -565,14 +491,7 @@ async def test_a_synthesizer_value_error_becomes_an_invalid_request(
 async def test_a_transient_synthesis_failure_is_retried(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The retry only works if translation happens *inside* the retried operation.
-
-    ``execute`` retries ``ResearcherError`` and nothing else, while the supplied
-    package raises its own ``ProviderError``. Translating outside the loop — as
-    this method first did — leaves the loop looking at a foreign exception it
-    lets straight through, so the synthesis policy silently retries nothing at
-    all. This test is what caught that.
-    """
+    """The retry only works if translation happens *inside* the retried operation."""
     calls = 0
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
@@ -597,14 +516,7 @@ async def test_a_transient_synthesis_failure_is_retried(
 async def test_a_rate_limited_synthesis_waits_the_provider_hint_then_recovers(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The whole chain: payload → parsed hint → wait → recovered attempt.
-
-    The provider names a delay larger than the policy's own (zero) backoff, so
-    the elapsed time tells the two implementations apart: without the fix the
-    retry lands immediately and the run finishes in milliseconds; with it the
-    wait is at least the hint. The margin is ten times the unfixed total, so a
-    slow CI machine cannot make this pass for the old behaviour.
-    """
+    """The whole chain: payload → parsed hint → wait → recovered attempt."""
     calls = 0
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
@@ -655,16 +567,7 @@ async def test_a_non_retryable_synthesis_failure_is_not_repeated(
 async def test_a_synthesis_timeout_is_abandoned_rather_than_repeated(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One provider call, then stop — even with three attempts available.
-
-    Two mechanisms enforce this and either alone would do: the deadline wraps
-    the whole call rather than each attempt, so no retry decision is ever
-    reached, and the synthesis policy sets ``retry_timeouts=False`` for the case
-    where an attempt reports a timeout itself. The observable claim is the same
-    either way. Abandoning matters less than it looks — the worker thread cannot
-    be cancelled, so the call runs to completion, and to the bill — but a retry
-    would pay for a second one on top of a result nobody is waiting for.
-    """
+    """One provider call, then stop — even with three attempts available."""
     calls = 0
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
@@ -688,20 +591,7 @@ async def test_a_synthesis_timeout_is_abandoned_rather_than_repeated(
 async def test_the_deadline_abandons_the_await_without_stopping_the_thread(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The limit on the deadline, demonstrated rather than asserted.
-
-    ``AIService.synthesize`` documents that a timeout cannot stop the work it
-    timed out on. That is a claim about what the deadline does *not* do, which
-    is exactly the kind that gets written once and never checked — so it is
-    checked here. Hard cancellation would be better, but it is not available:
-    ``ai.synthesize`` is synchronous, ``ai/`` is supplied and immutable, and a
-    thread running a blocking SDK call exposes no handle to cancel it with. The
-    caller stops waiting; the provider keeps working, and keeps billing.
-
-    ``__cause__`` on the timeout names the deadline, not a provider fault;
-    ``UpstreamTimeoutError``'s docstring says so, and this pins the timing that
-    makes the sentence true.
-    """
+    """The limit on the deadline, demonstrated rather than asserted."""
     completion: list[float] = []
     finished = threading.Event()
 
@@ -728,15 +618,7 @@ async def test_the_deadline_abandons_the_await_without_stopping_the_thread(
 async def test_synthesis_is_governed_by_its_own_deadline_not_the_fetch_one(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The two budgets are separate settings, and this is the proof.
-
-    Until Phase 7 they were one value, so this test is the regression guard for
-    the defect that separation fixed: a fetch budget tight enough to abandon a
-    dead host quickly also killed synthesis, which legitimately takes far
-    longer. A generous fetch deadline here and a tight synthesis one must still
-    time synthesis out — if the two were joined again, a 30-second fetch budget
-    would carry synthesis through and the call would hang instead of raising.
-    """
+    """The two budgets are separate settings, and this is the proof."""
     calls = 0
 
     def fake(question: str, sources: list[Source], *, llm: object = None) -> AnswerWithCitations:
@@ -757,9 +639,7 @@ async def test_synthesis_is_governed_by_its_own_deadline_not_the_fetch_one(
     assert calls == 1
 
 
-# ---------------------------------------------------------------------------
 # Lifecycle
-# ---------------------------------------------------------------------------
 
 
 async def test_aclose_is_idempotent(make_settings: SettingsFactory) -> None:
@@ -782,12 +662,7 @@ async def test_aclose_closes_a_client_it_built(make_settings: SettingsFactory) -
 async def test_aclose_survives_a_client_that_fails_to_close(
     make_settings: SettingsFactory,
 ) -> None:
-    """It runs from a ``finally`` block, where raising would replace the real failure.
-
-    The run that reached cleanup is the one whose error the user needs to see;
-    a close that also throws would bury it. Logged, then swallowed, so the
-    caller's ``finally`` stays a no-op on the way out.
-    """
+    """It runs from a ``finally`` block, where raising would replace the real failure."""
 
     class Stubborn(httpx.AsyncClient):
         async def aclose(self) -> None:

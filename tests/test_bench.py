@@ -1,21 +1,4 @@
-"""The benchmark's arithmetic, checked before it is trusted with a number.
-
-``scripts/bench.py`` is the one module whose output is quoted rather than
-executed: the timings it prints go into the README and the report, and nobody
-re-runs them to see whether they were right. That is exactly the situation where
-a silent bug survives, so the parts that can be checked offline are checked
-here — which sources each question is asked of, how a failure is counted, and
-the shape of the two tables the documentation copies.
-
-Nothing here runs a sweep, so nothing here spends API quota. The measurement
-itself is the one thing that cannot be tested without doing the thing being
-measured, and a script that faked it would prove nothing about the live run.
-
-The invariant that matters most is the cheapest to state and the easiest to
-break: ``use_cache`` is ``False`` on every benchmark request. A cache hit in the
-second mode would replace a network round trip with a local read, and the
-comparison would be reporting the speed of PostgreSQL.
-"""
+"""Checks benchmark requests, timing calculations, failure counts, and text and JSON reports."""
 
 from __future__ import annotations
 
@@ -89,9 +72,7 @@ def _run(label: str, *measured: bench.Measured, wall: float = 20.0, bound: int =
     return bench.Run(label=label, bound=bound, wall_seconds=wall, measured=tuple(measured))
 
 
-# ---------------------------------------------------------------------------
 # What each question is asked of
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -105,12 +86,7 @@ def questions() -> list[bench.DemoQuestion]:
 def test_the_controlled_plan_gives_every_question_every_source(
     questions: list[bench.DemoQuestion],
 ) -> None:
-    """The headline claim is only visible when there is something to overlap.
-
-    A question with a single source has no concurrency to exploit, so a sweep
-    over declared sources would understate the effect the benchmark exists to
-    measure.
-    """
+    """The headline claim is only visible when there is something to overlap."""
     plan = bench._plan(questions, declared=False)
 
     assert [sources for _, sources in plan] == [
@@ -147,18 +123,11 @@ def test_the_plan_does_not_mutate_the_question_set() -> None:
     assert question.sources == ("wikipedia",)
 
 
-# ---------------------------------------------------------------------------
-# The one invariant that makes the comparison mean anything
-# ---------------------------------------------------------------------------
+# Both modes must fetch the same questions and source types.
 
 
 def test_every_benchmark_request_bypasses_the_cache() -> None:
-    """A cache hit in the second mode would measure the database, not the network.
-
-    The second mode runs against a cache the first one has just filled, so a
-    request that consulted it would be answered locally and report a speedup
-    that has nothing to do with concurrency.
-    """
+    """A cache hit in the second mode would measure the database, not the network."""
     question = bench.DemoQuestion(id="q", text="?", difficulty="easy", sources=("wikipedia",))
 
     request = bench._request(question, (SourceName.WIKIPEDIA,))
@@ -185,17 +154,11 @@ def test_the_request_uses_the_documented_result_limit() -> None:
     )
 
 
-# ---------------------------------------------------------------------------
 # Counting failures
-# ---------------------------------------------------------------------------
 
 
 def test_an_empty_source_is_not_counted_as_a_failure() -> None:
-    """A provider that answered with nothing is a content outcome, not an outage.
-
-    Counting it would overstate the failure rate, and the failure rate is one of
-    the numbers the report uses to argue the run was healthy.
-    """
+    """A provider that answered with nothing is a content outcome, not an outage."""
     run = _run(
         "sequential",
         _measured(
@@ -242,12 +205,7 @@ def test_a_question_that_produced_nothing_is_reported_as_unanswered() -> None:
 
 
 def test_a_refused_synthesis_is_counted_as_unanswered() -> None:
-    """``NO_SOURCES`` is not the only way a sweep comes back empty-handed.
-
-    A sweep whose fetches all succeeded but whose synthesizer refused every
-    question is just as invalid, and it is the more dangerous case: the answers
-    are missing but the sources are not, so nothing about the run looks wrong.
-    """
+    """``NO_SOURCES`` is not the only way a sweep comes back empty-handed."""
     run = _run("concurrent", _measured("q1", status=ResultStatus.FAILED), bound=3)
 
     assert run.unanswered == ()
@@ -263,9 +221,7 @@ def test_a_partial_answer_still_counts_as_an_answer() -> None:
     assert run.synthesis_complete
 
 
-# ---------------------------------------------------------------------------
 # Withholding what cannot be reported honestly
-# ---------------------------------------------------------------------------
 
 
 def _both(*, status: ResultStatus) -> tuple[bench.Run, bench.Run]:
@@ -277,13 +233,7 @@ def _both(*, status: ResultStatus) -> tuple[bench.Run, bench.Run]:
 
 
 def test_a_run_where_synthesis_was_refused_reports_no_end_to_end_row() -> None:
-    """The failure that motivated this check, kept as a test.
-
-    A refused synthesis returns in about a second where a real one takes
-    several. An end-to-end row built from five of those against five real calls
-    shows a large speedup — which reads as the design working, when what it
-    actually records is a provider rejecting the work.
-    """
+    """The failure that motivated this check, kept as a test."""
     sequential, concurrent = _both(status=ResultStatus.FAILED)
 
     report = bench.render(sequential, concurrent, plan_note="x")
@@ -325,12 +275,7 @@ def test_the_withheld_report_says_how_many_questions_were_answered() -> None:
 
 
 def test_two_sweeps_of_different_lengths_are_refused_rather_than_tabulated() -> None:
-    """The comparison is only meaningful between two sweeps of the same questions.
-
-    ``_per_question`` zips them with ``strict=True``, so a mismatch is a crash
-    rather than a table with one mode's extra row quietly dropped — which would
-    make the two totals incomparable without saying so.
-    """
+    """The comparison is only meaningful between two sweeps of the same questions."""
     sequential = _run("sequential", _measured("q1"), _measured("q2"))
     concurrent = _run("concurrent", _measured("q1"), bound=3)
 
@@ -369,9 +314,7 @@ def test_a_healthy_run_still_reports_both_rows() -> None:
     assert "End-to-end" in bench.markdown(sequential, concurrent)
 
 
-# ---------------------------------------------------------------------------
 # The arithmetic
-# ---------------------------------------------------------------------------
 
 
 def test_the_totals_are_the_sum_of_the_questions() -> None:
@@ -397,9 +340,7 @@ def test_an_empty_sweep_reports_no_speedup_instead_of_dividing_by_zero() -> None
     assert bench._ratio(1.0, 0.0) == 0.0
 
 
-# ---------------------------------------------------------------------------
 # The two tables the documentation copies
-# ---------------------------------------------------------------------------
 
 
 def test_the_report_names_every_question_and_both_bounds() -> None:
@@ -481,9 +422,7 @@ def test_the_markdown_speedup_matches_the_report() -> None:
     assert "3.00x" in bench.markdown(sequential, concurrent)
 
 
-# ---------------------------------------------------------------------------
 # The machine-readable copy
-# ---------------------------------------------------------------------------
 
 
 def test_the_json_output_is_serialisable_and_complete() -> None:
@@ -514,9 +453,7 @@ def test_the_json_output_is_serialisable_and_complete() -> None:
     }
 
 
-# ---------------------------------------------------------------------------
 # Column layout
-# ---------------------------------------------------------------------------
 
 
 def test_columns_are_sized_to_their_widest_cell() -> None:
@@ -544,9 +481,7 @@ def test_a_single_row_table_still_renders_a_rule() -> None:
     assert set(lines[1]) <= {"-", " "}
 
 
-# ---------------------------------------------------------------------------
 # Pacing
-# ---------------------------------------------------------------------------
 
 
 class _Clock:
@@ -574,12 +509,7 @@ def _plan_of(count: int) -> list[tuple[bench.DemoQuestion, tuple[SourceName, ...
 
 @pytest.mark.asyncio
 async def test_the_pause_waits_between_questions_and_never_before_the_first() -> None:
-    """The wait exists to stay inside a rate limit; it must not become latency.
-
-    A pause that leaked inside a question would be charged to retrieval, and
-    the benchmark would report its own throttling as the application being
-    slow. Waiting before the first question would do the same to the sweep.
-    """
+    """The wait exists to stay inside a rate limit; it must not become latency."""
     service = _Clock()
 
     started = time.perf_counter()
@@ -605,13 +535,7 @@ async def test_no_pause_means_no_waiting_at_all() -> None:
 
 
 def test_a_table_with_no_rows_renders_its_header_instead_of_raising() -> None:
-    """The invalid run is the one whose report matters most.
-
-    When no source returned anything there are no outcomes to group, so the
-    per-source table has no body — and that is precisely the sweep the exit
-    status exists to flag. Crashing on the way to saying so would replace a
-    clear "these numbers are not a comparison" with a traceback.
-    """
+    """The invalid run is the one whose report matters most."""
     lines = bench._column([], ("source", "n"))
 
     assert lines[0].startswith("source")

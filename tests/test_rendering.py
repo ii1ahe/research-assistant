@@ -1,14 +1,5 @@
-"""What the user sees, and — more importantly — what they never see.
-
-The functions here are pure, so these tests read the strings they return rather
-than capturing a stream. That is deliberate: the choice of stream is a policy
-decision made once in ``cli.py``, and mixing it into these tests would mean
-testing the same decision eighteen times instead of once.
-
-The claim worth guarding is the one ADR-005 states and the models enforce: a
-source that failed, timed out or came back empty is *reported*, and is never
-*referenced*. A citation number that resolves to something the answer did not
-use is worse than no citation, because it reads as evidence.
+"""Checks answer and diagnostic output, reference alignment, summaries, and hidden source
+snippets.
 """
 
 from __future__ import annotations
@@ -55,9 +46,7 @@ def _references_of(rendered: str) -> str:
     return tail
 
 
-# ---------------------------------------------------------------------------
 # The product
-# ---------------------------------------------------------------------------
 
 
 def test_the_question_the_answer_and_the_references_are_all_rendered() -> None:
@@ -128,9 +117,7 @@ def test_a_failed_run_is_distinguished_from_one_with_no_sources() -> None:
     assert "synthesis failed" in render_answer(result)
 
 
-# ---------------------------------------------------------------------------
 # The rule that matters
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -151,12 +138,7 @@ def test_a_source_that_did_not_succeed_is_never_rendered_as_a_reference(
 
 
 def test_a_non_success_outcome_cannot_even_hold_a_source() -> None:
-    """The rendering rule is enforced by the model, not merely observed by it.
-
-    Worth asserting directly, because it is *why* the renderer can build
-    references from the answer alone and be certain a dead source cannot appear:
-    there is no representable state in which one has a source to offer.
-    """
+    """The rendering rule is enforced by the model, not merely observed by it."""
     with pytest.raises(ValueError, match="must not carry sources"):
         SourceOutcome(
             source=SourceName.ARXIV,
@@ -183,9 +165,7 @@ def test_references_come_from_the_answer_not_from_every_outcome() -> None:
     assert "wikipedia result 2" not in references
 
 
-# ---------------------------------------------------------------------------
 # The report
-# ---------------------------------------------------------------------------
 
 
 def test_every_source_gets_a_row_whatever_happened_to_it() -> None:
@@ -272,9 +252,7 @@ def test_a_skipped_write_is_not_reported_as_a_problem() -> None:
     assert "not recorded" not in render_diagnostics(result)
 
 
-# ---------------------------------------------------------------------------
 # The batch summary
-# ---------------------------------------------------------------------------
 
 
 def test_the_summary_counts_the_questions_that_were_answered() -> None:

@@ -1,16 +1,5 @@
-"""PostgreSQL implementation of the source-result cache.
-
-The table's primary key is the whole :class:`~researcher.models.CacheKey`, so
-``put`` is a single ``INSERT ... ON CONFLICT`` and freshness is filtered in SQL
-rather than in Python. Both choices push decisions into the database that would
-otherwise be re-implemented — and eventually mis-implemented — per call site.
-
-The ``payload`` column holds the entire
-:class:`~researcher.models.CacheEntry` as JSON, while the key is *also* spread
-across columns. That is deliberate redundancy: the columns are the index the
-lookup runs against, and the payload is the record. Because the two are written
-from one object they cannot disagree at rest, and a read checks that they did
-not — see :meth:`PostgresSourceCache.get`.
+"""Stores source results in PostgreSQL and returns entries whose cache keys match and have not
+expired.
 """
 
 from __future__ import annotations
@@ -28,9 +17,7 @@ __all__ = ["PostgresSourceCache"]
 
 logger = logging.getLogger(__name__)
 
-#: Matches the primary key declared in ``migrations/001_initial_schema.sql``.
-#: The two must agree or ``ON CONFLICT`` fails at runtime, so this string and
-#: the migration are a pair.
+# These key columns must match the primary key in 001_initial_schema.sql.
 _KEY_PREDICATE = (
     "source = $1 AND query = $2 AND provider = $3 AND max_results = $4 AND schema_version = $5"
 )
@@ -80,11 +67,6 @@ class PostgresSourceCache:
     async def get(self, key: CacheKey, *, now: datetime | None = None) -> CacheEntry | None:
         """Return the fresh cached entry for ``key``, or ``None``.
 
-        Staleness is decided by the database (``expires_at > now``), using the
-        same strict comparison as
-        :meth:`~researcher.models.CacheEntry.is_fresh`, so an entry that is
-        exactly at its expiry instant counts as stale in both places.
-
         Raises:
             StorageError: The lookup failed, or the stored payload does not
                 match the key it was filed under.
@@ -98,11 +80,8 @@ class PostgresSourceCache:
 
             entry = CacheEntry.model_validate_json(row["payload"])
             if entry.key != key:
-                # Only reachable if a row were written by something other than
-                # put, or if the payload column were edited by hand. Returning
-                # it would serve one query's results for another, so it is
-                # refused. StorageError is not in READ_ERRORS, so it propagates
-                # rather than being re-translated below.
+                # Reject a payload whose cache key differs from the lookup key.
+                # StorageError is not in READ_ERRORS, so it passes through unchanged.
                 raise StorageError(
                     "cached entry does not match the key it was stored under",
                     source="storage",
@@ -145,6 +124,5 @@ class PostgresSourceCache:
         except DRIVER_ERRORS as exc:
             raise translate(exc, "purging expired cache entries") from exc
 
-        # asyncpg reports the affected count in the command tag ("DELETE 3")
-        # rather than returning it, which is why this parses the tag.
+        # asyncpg returns a command tag such as DELETE 3; read the count from it.
         return int(tag.rsplit(" ", 1)[-1])

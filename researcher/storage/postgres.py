@@ -1,23 +1,5 @@
-"""PostgreSQL storage: connection pool, migrations and lifecycle.
-
-This is the only module in the application that imports a database driver. The
-repositories in :mod:`researcher.storage.cache_store` and
-:mod:`researcher.storage.session_repository` receive the pool from here, and
-everything above :class:`PostgresStorage` sees only the protocols in
-:mod:`researcher.storage.interfaces`.
-
-Two responsibilities live here rather than in the repositories:
-
-**Migrations.** They are a property of the database, not of either repository,
-and applying them must happen exactly once before either repository is used.
-Running them from ``connect`` means a caller cannot obtain a usable storage
-object without the schema being current.
-
-**Error translation.** Every driver exception is converted to
-:class:`~researcher.errors.StorageError` at this boundary. The original is
-attached as ``__cause__`` because suppressing it would make a production
-failure undiagnosable, but it is never interpolated into the message: a DSN
-may carry a password, and a driver message may quote a row.
+"""Opens the PostgreSQL pool, applies SQL migrations, checks migration hashes, and closes the
+pool.
 """
 
 from __future__ import annotations
@@ -43,32 +25,17 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-#: Repository root, derived from this file's location rather than the current
-#: working directory, so migrations are found regardless of where the CLI is
-#: invoked from.
+# Find migrations from the repo path rather than the working directory.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: Default migration directory. A top-level ``migrations/`` is what the README
-#: advertises and what a reviewer will look for.
+# SQL migrations live in the top-level migrations folder.
 _MIGRATIONS_DIRNAME = "migrations"
 
-#: Ceiling on any single statement the pool runs.
-#:
-#: The per-source deadline in ``AIService.fetch_source`` covers a fetch and its
-#: retries, but the orchestrator reads the cache *before* that call and writes
-#: it *after* — so a slow database could hold retrieval open well past the
-#: per-source duration the README documents, with nothing to stop it. This
-#: bounds each statement instead, and therefore bounds the cache operations
-#: built from them.
-#:
-#: The default matches the default ``per_source_timeout_seconds``, because a
-#: cache operation is spending the budget of the source it belongs to.
-#: ``bootstrap`` passes that setting explicitly so the two stay tied when it is
-#: changed; this default is for callers that construct storage directly.
+# Bound each SQL statement because cache reads and writes run outside fetch deadlines.
+# bootstrap passes the active source timeout; this default is for direct callers.
 _DEFAULT_COMMAND_TIMEOUT = 10.0
 
-#: Bookkeeping for applied migrations. The checksum is what makes migrations
-#: append-only: re-running an edited file is refused rather than skipped.
+# Store migration hashes so an edited, already-applied file is rejected.
 _MIGRATIONS_DDL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
     filename   text        PRIMARY KEY,
@@ -85,11 +52,6 @@ def migrations_dir() -> Path:
 
 def discover_migrations(directory: Path | None = None) -> list[Path]:
     """Return the ``.sql`` migrations in ``directory``, ordered by filename.
-
-    Ordering is lexical, which is why migrations are numbered. A zero-padded
-    or otherwise consistently sorted prefix is required; ``10_x.sql`` sorting
-    before ``2_x.sql`` is the caller's problem to avoid, not something this
-    function silently corrects.
 
     Raises:
         StorageError: The directory is missing or holds no migrations. Both
@@ -117,10 +79,6 @@ async def run_migrations(
     directory: Path | None = None,
 ) -> tuple[str, ...]:
     """Apply every migration that has not been applied yet.
-
-    Each migration runs inside its own transaction together with the row that
-    records it, so a failure leaves neither a half-applied schema nor a
-    bookkeeping row claiming otherwise.
 
     Args:
         pool: An open pool.
@@ -175,12 +133,7 @@ async def run_migrations(
 
 
 class PostgresStorage:
-    """The application's :class:`~researcher.storage.interfaces.Storage` implementation.
-
-    Construct through :meth:`connect` rather than directly: it opens the pool
-    and brings the schema up to date, so an instance that exists is an instance
-    that is ready to use.
-    """
+    """The application's :class:`~researcher.storage.interfaces.Storage` implementation."""
 
     def __init__(self, pool: asyncpg.Pool) -> None:
         """Wrap an already-open pool.
@@ -206,40 +159,22 @@ class PostgresStorage:
         migrate: bool = True,
         migrations_path: Path | None = None,
     ) -> PostgresStorage:
-        """Open a pool against ``dsn`` and bring the schema up to date.
+        """Open a database pool and apply pending migrations.
 
         Args:
             dsn: PostgreSQL connection string.
-            min_size: Connections opened eagerly. At least one so that an
-                unreachable database fails here rather than on first use.
-            max_size: Hard ceiling on concurrent connections.
-            timeout: Seconds a connection attempt may take before the pool
-                open fails. The driver's default is 60 s, which turns an
-                unreachable database into a minute of silence per attempt —
-                the clean-clone reproduction
-                (``artefacts/reproduction-codespaces-bfec78.txt``) measured
-                seven skipped tests at sixty seconds each. Fail fast instead,
-                so bootstrap reports the unusable database rather than
-                hanging.
-            command_timeout: Seconds any single statement may take before the
-                driver abandons it. ``timeout`` bounds *connecting*; this
-                bounds *querying*, which is the failure this pool had no answer
-                for — see :data:`_DEFAULT_COMMAND_TIMEOUT`. A statement that
-                exceeds it raises ``TimeoutError``, which
-                :data:`~researcher.storage._driver.DRIVER_ERRORS` translates to
-                :class:`~researcher.errors.StorageError`; the cache turns that
-                into a miss, so a slow database costs a live fetch rather than
-                a hung run.
-            migrate: Set false only when the caller manages migrations itself.
-            migrations_path: Override for the migration directory.
+            min_size: Connections opened at startup; at least one checks the database now.
+            max_size: Maximum number of connections.
+            timeout: Connection timeout in seconds.
+            command_timeout: Timeout for each SQL statement, separate from connecting.
+            migrate: Whether to apply migrations when opening the pool.
+            migrations_path: Optional migration folder override.
 
         Returns:
-            A ready :class:`PostgresStorage`.
+            Storage ready for cache and session queries.
 
         Raises:
-            StorageError: The pool could not be opened, or a migration failed.
-                The pool is closed before this is raised, so a failed connect
-                does not leak connections.
+            StorageError: Connection or migration setup fails. The pool is closed first.
         """
         try:
             pool = await asyncpg.create_pool(
@@ -259,8 +194,7 @@ class PostgresStorage:
             try:
                 await run_migrations(pool, directory=migrations_path)
             except BaseException:
-                # Covers StorageError and cancellation alike: a pool that was
-                # opened must not outlive a failed setup.
+                # Close the pool if migration setup fails or is cancelled.
                 await pool.close()
                 raise
 
@@ -277,13 +211,7 @@ class PostgresStorage:
         return self._sessions
 
     async def aclose(self) -> None:
-        """Close the pool.
-
-        Safe to call more than once, and deliberately does **not** raise. It is
-        called from cleanup blocks, where an exception would replace whatever
-        failure was already propagating and hide the real cause. A close that
-        fails is logged instead.
-        """
+        """Close the pool."""
         if self._closed:
             return
         self._closed = True

@@ -1,8 +1,4 @@
-"""Entry point for ``python -m researcher``.
-
-Kept deliberately thin: argument parsing and exit-status mapping live in
-:mod:`researcher.cli`.
-"""
+"""Runs the CLI when called with python -m researcher."""
 
 from __future__ import annotations
 

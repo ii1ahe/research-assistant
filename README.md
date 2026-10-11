@@ -1,5 +1,7 @@
 # Researcher — Async Research Assistant
 
+For a short description of every project file, see [FILES.md](FILES.md).
+
 > Ask a research question and get a concise, cited answer. Wikipedia, arXiv and a
 > pluggable web-search provider are queried **concurrently**, each under its own
 > deadline, and the resulting excerpts are synthesised into one answer with

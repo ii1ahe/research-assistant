@@ -1,23 +1,5 @@
-"""Fan-out, degradation and ordering — the claims ADR-005 makes.
-
-Three of these are load-bearing and easy to get subtly wrong:
-
-*Order.* The position of a source in the result fixes its citation number, so
-results must be reassembled in the order the user selected, never in the order
-they happened to finish. The test for this deliberately makes the *first*
-source the slowest.
-
-*Bounded concurrency.* Unbounded fan-out is how a working application earns
-HTTP 429s. The bound is measured here, not read back from configuration.
-
-*Survival.* One broken source must not cost the others, and a cache fault must
-not cost anything at all.
-
-Cache behaviour is tested through the public surface: a test warms the cache by
-running a retrieval, or seeds it with a key built by hand, and then observes
-whether the next run fetches. That way the tests also pin the key convention —
-a key that stopped matching would show up as a failed fetch count, not as a
-private method returning something different.
+"""Checks parallel retrieval limits, result order, duplicate removal, caching, and source
+failures.
 """
 
 from __future__ import annotations
@@ -106,9 +88,7 @@ def _build(settings: Settings, ai: Any, cache: Any = None) -> Orchestrator:
     return Orchestrator(ai, CacheService(cache or InMemorySourceCache(), settings), settings)
 
 
-# ---------------------------------------------------------------------------
 # Gathering
-# ---------------------------------------------------------------------------
 
 
 async def test_every_selected_source_is_fetched_once(make_settings: SettingsFactory) -> None:
@@ -141,11 +121,7 @@ async def test_sources_are_concatenated_in_selection_order(make_settings: Settin
 async def test_outcomes_follow_selection_order_not_completion_order(
     make_settings: SettingsFactory,
 ) -> None:
-    """The first source is the slowest, so completion order is the reverse.
-
-    A gather that reassembled results as they arrived would renumber every
-    citation in the answer — silently, and consistently enough to look fine.
-    """
+    """The first source is the slowest, so completion order is the reverse."""
     probe = Probe(delays={SourceName.WIKIPEDIA: 0.05, SourceName.ARXIV: 0.0})
     orchestrator = _build(make_settings(), probe)
 
@@ -227,12 +203,7 @@ async def test_an_unexpected_exception_becomes_an_error_outcome(
 
 
 async def test_cancellation_is_not_swallowed(make_settings: SettingsFactory) -> None:
-    """A cancelled run stays cancelled rather than reporting a failed source.
-
-    ``gather(return_exceptions=True)`` captures a child's cancellation as an
-    ordinary result, so without an explicit re-raise a shutdown would look
-    exactly like three dead sources.
-    """
+    """A cancelled run stays cancelled rather than reporting a failed source."""
 
     class Cancelling:
         async def fetch_source(self, source: SourceName, query: str, **kwargs: Any) -> Any:
@@ -244,9 +215,7 @@ async def test_cancellation_is_not_swallowed(make_settings: SettingsFactory) -> 
         await orchestrator.retrieve(_request(SourceName.ARXIV), canonical_query="q")
 
 
-# ---------------------------------------------------------------------------
 # Bounded concurrency
-# ---------------------------------------------------------------------------
 
 
 async def test_concurrency_is_capped_at_the_configured_bound(
@@ -271,9 +240,7 @@ async def test_a_bound_of_one_serialises_the_fetches(make_settings: SettingsFact
     assert len(probe.calls) == 3
 
 
-# ---------------------------------------------------------------------------
 # Cache interaction
-# ---------------------------------------------------------------------------
 
 
 async def test_a_second_run_is_served_from_the_cache(make_settings: SettingsFactory) -> None:
@@ -295,11 +262,7 @@ async def test_a_second_run_is_served_from_the_cache(make_settings: SettingsFact
 async def test_a_cached_empty_result_is_empty_not_success(
     make_settings: SettingsFactory,
 ) -> None:
-    """A successful outcome must carry a source, and there is none to carry.
-
-    Reported as EMPTY because that is what it is: the answer to "is there
-    anything here" does not depend on when it was asked.
-    """
+    """A successful outcome must carry a source, and there is none to carry."""
     settings = make_settings()
     cache = InMemorySourceCache()
     ai = StubAIService()
@@ -356,17 +319,11 @@ async def test_a_failed_cache_write_is_reported_once(make_settings: SettingsFact
     assert sum("cache write failed" in note for note in result.warnings) == 1
 
 
-# ---------------------------------------------------------------------------
 # Key construction
-# ---------------------------------------------------------------------------
 
 
 async def test_the_key_names_the_backend_for_web(make_settings: SettingsFactory) -> None:
-    """Switching WEB_SEARCH_PROVIDER must not serve the previous provider's hits.
-
-    Two entries are seeded for the same query under different provider names. A
-    key that omitted the provider would return whichever was written last.
-    """
+    """Switching WEB_SEARCH_PROVIDER must not serve the previous provider's hits."""
     settings = make_settings(web_search_provider="tavily")
     cache = InMemorySourceCache()
     service = CacheService(cache, settings)

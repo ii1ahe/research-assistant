@@ -1,42 +1,5 @@
-"""Fanning out to the selected sources, and surviving it.
-
-This module implements ADR-005. Sources are independent and remote, so the
-design question is not "how do we fetch them" but "what happens when one of
-them is slow, empty, or broken". The answer is that the request still returns:
-every source produces a typed :class:`~researcher.models.SourceOutcome`, and the
-aggregate is a :class:`~researcher.models.RetrievalResult` carrying both the
-sources that arrived and the record of those that did not.
-
-Four things make that hold.
-
-**Bounded fan-out.** A semaphore caps how many fetches are in flight, because
-unbounded concurrency against a search provider is how a working application
-earns HTTP 429s (``docs/COMMON_PITFALLS.md`` #2).
-
-**Deadlines per source, applied inside the fetch.** ``AIService.fetch_source``
-already owns the per-source budget, so nothing here needs a second timer — and
-importantly there is no timeout wrapping the *gather*, which is what would let
-one slow source consume the others' time.
-
-That budget covers the fetch and its retries, and deliberately not this
-module's cache work: the lookup below happens *before* ``fetch_source`` is
-called and the store *after* it returns, so neither is inside its clock. The
-database is bounded instead — ``PostgresStorage`` gives every statement a
-``command_timeout`` — so a slow database costs one bounded cache operation and
-then a live fetch, rather than holding the retrieval open indefinitely. The
-ceiling this module actually has is therefore one cache operation plus a full
-fetch, which is what the README states.
-
-**Order is preserved, and that is a correctness property.** The position of a
-source in ``RetrievalResult.sources`` fixes its citation number for the rest of
-the run, so results are reassembled in the order the user selected rather than
-in completion order. ``asyncio.gather`` returns results in the order its inputs
-were given, which is what makes that free.
-
-**Exceptions cannot escape.** The fetch layer reports failures as data, so an
-exception reaching this module means a bug in that layer. It is converted into
-an error outcome rather than allowed to abort a run that has already spent
-quota — except for cancellation, which must keep propagating.
+"""Fetches the selected sources under a concurrency limit and combines results even when a source
+fails.
 """
 
 from __future__ import annotations
@@ -64,9 +27,7 @@ __all__ = ["Orchestrator"]
 
 logger = logging.getLogger(__name__)
 
-#: Code carried by a failure that no layer claimed. Distinguishable from every
-#: :class:`~researcher.errors.ResearcherError` code so that an unexpected
-#: internal fault is never mistaken for a known upstream one.
+# Separate unexpected internal faults from known provider errors.
 INTERNAL_ERROR_CODE = "internal_error"
 
 
@@ -92,9 +53,6 @@ class Orchestrator:
         canonical_query: str,
     ) -> RetrievalResult:
         """Retrieve from every source in ``request``.
-
-        Never raises for a source-level failure, and never raises for a cache
-        failure either — both arrive as outcomes and warnings.
 
         Args:
             request: The validated request.
@@ -127,9 +85,7 @@ class Orchestrator:
             _as_outcome(source, result)
             for source, result in zip(request.sources, results, strict=True)
         )
-        # Deduplicated across sources as well as within them: the same page can
-        # legitimately be the top hit for two of them. First occurrence wins, so
-        # the ordering established above survives.
+        # Remove duplicate URLs across all sources while keeping the first result.
         sources = deduplicate_sources(src for outcome in outcomes for src in outcome.sources)
         logger.info(
             "retrieved %d source(s) from %d of %d selected",
@@ -156,8 +112,7 @@ class Orchestrator:
         if key is not None:
             lookup = await self._cache.lookup(key)
             if lookup.failure is not None:
-                # Reported, but the run continues: the fetch below is exactly
-                # what would have happened had the cache never existed.
+                # A cache failure is reported, then retrieval continues with a live fetch.
                 note(f"cache read failed ({lookup.failure.code}); sources were fetched live")
             elif lookup.entry is not None:
                 return _from_cache(source, lookup.entry.sources)
@@ -174,13 +129,7 @@ class Orchestrator:
         return outcome
 
     def _cache_key(self, source: SourceName, canonical_query: str, max_results: int) -> CacheKey:
-        """Build the identity of one cacheable result.
-
-        The provider is part of the key because the same query against the same
-        source returns different payloads from different backends — switching
-        ``WEB_SEARCH_PROVIDER`` must not serve the previous provider's results.
-        Wikipedia and arXiv have no such choice, so they name themselves.
-        """
+        """Build the identity of one cacheable result."""
         return CacheKey(
             source=source,
             query=canonical_query,
@@ -196,16 +145,7 @@ class Orchestrator:
 
 
 def _from_cache(source: SourceName, sources: tuple[Source, ...]) -> SourceOutcome:
-    """Describe a cache hit, including a cached *empty* result.
-
-    An empty hit is reported as :attr:`~researcher.models.SourceStatus.EMPTY`
-    and not as a success, because a successful outcome is required to carry at
-    least one source — and because "we looked and there was nothing" is the same
-    answer whether it was learned now or yesterday.
-
-    ``attempts`` is zero: no request was made. That is the one field that
-    distinguishes a hit from a fetch when both return sources.
-    """
+    """Describe a cache hit, including a cached *empty* result."""
     if not sources:
         return SourceOutcome(source=source, status=SourceStatus.EMPTY, cache_hit=True, attempts=0)
     return SourceOutcome(
@@ -231,10 +171,7 @@ def _as_outcome(source: SourceName, result: SourceOutcome | BaseException) -> So
         raise result
 
     if isinstance(result, BaseException):
-        # A bug in the fetch layer, not a source failure: fetch_source reports
-        # those as data. The exception text is logged but not surfaced, since an
-        # unanticipated exception is exactly the kind whose message might carry
-        # provider payload.
+        # Log unexpected exception details, but keep provider payloads out of user output.
         logger.error("%s retrieval raised unexpectedly", source.value, exc_info=result)
         return SourceOutcome(
             source=source,

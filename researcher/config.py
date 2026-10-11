@@ -1,32 +1,5 @@
-"""Typed, validated application settings.
-
-Settings are read from the process environment, falling back to a ``.env`` file
-in the working directory. They are validated once, at startup, so a
-misconfiguration surfaces immediately as a clear message and exit status 2
-rather than as a confusing provider error halfway through a request.
-
-Integration with the supplied ``ai`` package
---------------------------------------------
-``ai.providers.factory.get_llm()`` and the ``Provider`` classes read
-``os.environ`` directly, and the factories accept no arguments. This module
-therefore does **not** mutate ``os.environ``: it exposes the validated values
-plus the resolution helpers below (:attr:`resolved_llm_api_key`,
-:attr:`effective_llm_model`, :attr:`web_search_api_key`) so the ``ai_service``
-boundary can construct provider objects explicitly and inject them. That keeps
-one authoritative source of configuration, makes the model recorded in a
-session snapshot provably the model that answered, and makes tests injectable
-without patching the environment.
-
-The provider-name aliases accepted here mirror the supplied factories exactly
-(``google`` -> ``gemini``, ``ddg`` -> ``duckduckgo``), and the per-provider
-model defaults mirror the defaults in ``ai/providers/*.py``.
-
-Security
---------
-Validation messages deliberately report only field names and failure reasons.
-Pydantic's machine-readable ``errors()`` entries carry the offending input
-value, and those values are API keys, so the raw entries are never included in
-an error message.
+"""Reads and checks environment settings, resolves provider keys and model names, and sets
+timeouts and result limits.
 """
 
 from __future__ import annotations
@@ -47,45 +20,25 @@ __all__ = [
     "model_family",
 ]
 
-#: Providers the supplied ``ai.providers.factory`` can build. ``google`` is
-#: accepted as an alias of ``gemini`` and normalised to ``gemini`` here.
+# Accepted LLM providers; google is mapped to gemini.
 LLMProviderName = Literal["anthropic", "openai", "gemini"]
 
-#: Web-search providers the supplied ``ai.sources`` can build. ``ddg`` is
-#: accepted as an alias of ``duckduckgo`` and normalised here.
+# Accepted web providers; ddg is mapped to duckduckgo.
 WebSearchProviderName = Literal["tavily", "serper", "duckduckgo"]
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 WikipediaSearch = Literal["fulltext", "opensearch"]
 
-#: Per-provider default model ids.
-#:
-#: For ``anthropic`` and ``openai`` these mirror the fallbacks the supplied
-#: provider classes apply when ``LLM_MODEL`` is unset, so
-#: :attr:`Settings.effective_llm_model` describes the model that will actually
-#: answer.
-#:
-#: ``gemini`` deliberately does *not* mirror the supplied code. That class still
-#: falls back to ``gemini-2.0-flash``, which the API now rejects with
-#: ``404 NOT_FOUND`` — the model has been retired. Mirroring a retired id
-#: faithfully would make the application fail on its first live call, so this
-#: diverges on purpose, and the divergence is recorded rather than silent.
-#: ``ai/`` is supplied code and not ours to correct.
-#:
-#: Verified against the live API: ``gemini-2.0-flash`` -> 404, and
-#: ``gemini-2.5-flash`` -> 404 ("no longer available to new users"), so 2.x is
-#: not a usable target for this account. On 2026-09-18, ``gemini-3.8-flash``
-#: timed out on source-backed questions, while ``gemini-3.1-flash-lite``
-#: completed two full CLI questions with citations and persistence.
+# Default model IDs. The Gemini default differs from the supplied package.
+# The September 18, 2026 project runs used gemini-3.1-flash-lite after older
+# models were rejected or timed out; details are in README.md.
 _DEFAULT_LLM_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-4o-mini",
     "gemini": "gemini-3.1-flash-lite",
 }
 
-#: Recognisable model-name prefixes, used only to catch the shared-``LLM_MODEL``
-#: trap: one variable feeds every provider, so switching ``LLM_PROVIDER``
-#: without switching ``LLM_MODEL`` pairs, say, a Claude id with OpenAI.
+# Catch a model ID left over from a different provider.
 _MODEL_PREFIXES: dict[LLMProviderName, tuple[str, ...]] = {
     "anthropic": ("claude",),
     "openai": ("gpt", "o1", "o3", "o4", "chatgpt"),
@@ -94,12 +47,7 @@ _MODEL_PREFIXES: dict[LLMProviderName, tuple[str, ...]] = {
 
 
 def model_family(model: str) -> LLMProviderName | None:
-    """Infer which provider a model id belongs to.
-
-    Returns ``None`` for ids that match no known family, such as aliases served
-    by a proxy or gateway. Those are permitted rather than rejected, because a
-    custom name is not evidence of a mistake.
-    """
+    """Infer which provider a model id belongs to."""
     candidate = model.strip().lower()
     for family, prefixes in _MODEL_PREFIXES.items():
         if candidate.startswith(prefixes):
@@ -108,24 +56,14 @@ def model_family(model: str) -> LLMProviderName | None:
 
 
 class Settings(BaseSettings):
-    """Validated application settings.
-
-    Instances are immutable. Build one through :func:`get_settings`, which
-    caches the result and translates validation failures into
-    :class:`~researcher.errors.ConfigurationError`.
-    """
+    """Validated application settings."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        # An empty value in `.env` (`TAVILY_API_KEY=`) means "not configured".
-        # Without this, it would arrive as `''` — falsy but not `None` — and
-        # every `is None` check downstream would wrongly conclude a credential
-        # is present. `.env.example` ships with these keys blank, so this case
-        # is the normal path, not an edge case.
+        # Treat blank environment values as missing credentials.
         env_ignore_empty=True,
-        # A `.env` may legitimately hold variables for other tools (editor
-        # settings, shell config). Unknown keys are not our business.
+        # Allow .env to contain settings for other tools.
         extra="ignore",
         case_sensitive=False,
         frozen=True,
@@ -147,38 +85,17 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     serper_api_key: str | None = None
 
-    # --- Application -------------------------------------------------------
-    #: There is deliberately no ``CACHE_DIR``: ADR-002 stores cached retrieval
-    #: results in PostgreSQL alongside sessions, so there is no filesystem
-    #: cache to point at. A setting nothing reads is a setting that lies.
+    # Application settings. Cached sources are stored in PostgreSQL, not files.
     log_level: LogLevel = "INFO"
     cache_ttl_seconds: int = Field(default=86400, ge=0)
     per_source_timeout_seconds: float = Field(default=10.0, gt=0)
-    #: The deadline for one synthesis, retries included. Deliberately separate
-    #: from ``per_source_timeout_seconds``, because the two bound different
-    #: things. A search request that has not answered in ten seconds is not
-    #: going to, and abandoning it costs one round trip; an LLM completion
-    #: legitimately takes tens of seconds, and abandoning it throws away work
-    #: that was nearly finished.
-    #:
-    #: Sharing one knob made that distinction invisible. Raising the fetch
-    #: budget to accommodate a slow search provider silently bought synthesis
-    #: time as well, and lowering it to fail fast on a dead host silently
-    #: started killing synthesis. Phase 7 found the cost: measured against the
-    #: configured Gemini model, synthesis ran at 2.9s, 3.9s, 6.1s and 7.6s on a
-    #: quiet run and then hit the ten-second ceiling — roughly one synthesis in
-    #: six refused, on a machine doing nothing else.
+    # Answer generation has its own deadline because it can take longer than a fetch.
+    # This includes retries and is separate from per_source_timeout_seconds.
     synthesis_timeout_seconds: float = Field(default=30.0, gt=0)
     max_results_per_source: int = Field(default=3, ge=1, le=20)
     max_parallel_sources: int = Field(default=3, ge=1, le=16)
     max_question_length: int = Field(default=500, ge=1)
-    #: Which Wikipedia search the application uses. ``fulltext`` sends the
-    #: question to the MediaWiki search API; ``opensearch`` uses the supplied
-    #: ``ai.sources.fetch_wikipedia``. The default is ``fulltext`` because the
-    #: supplied fetcher prefix-matches the whole query against article *titles*,
-    #: so it answers a natural-language question with nothing — see
-    #: ``researcher/services/wikipedia.py``. ``opensearch`` is kept selectable
-    #: so the supplied path stays reachable and testable.
+    # Use full-text search for questions. Keep opensearch selectable for the supplied path.
     wikipedia_search: WikipediaSearch = "fulltext"
 
     # --- Persistence -------------------------------------------------------
@@ -224,9 +141,7 @@ class Settings(BaseSettings):
     )
     @classmethod
     def _blank_to_none(cls, value: object) -> object:
-        # `env_ignore_empty` covers the environment and `.env`, but a value set
-        # programmatically (or via a shell that exports an empty string) can
-        # still arrive blank. Treat blank as absent everywhere.
+        # Treat blank values passed directly to Settings as missing too.
         if isinstance(value, str) and not value.strip():
             return None
         return value
@@ -269,11 +184,7 @@ class Settings(BaseSettings):
 
     @property
     def web_search_api_key(self) -> str | None:
-        """The credential the configured web-search provider will use.
-
-        ``None`` is not an error here: DuckDuckGo needs no credential, which is
-        why it is the recommended provider for a key-free demo run.
-        """
+        """The credential the configured web-search provider will use."""
         if self.web_search_provider == "tavily":
             return self.tavily_api_key
         if self.web_search_provider == "serper":
@@ -287,11 +198,7 @@ class Settings(BaseSettings):
 
 
 def _describe(exc: ValidationError) -> str:
-    """Summarise a validation failure without echoing configured values.
-
-    Pydantic attaches the offending input to each error entry; those inputs are
-    routinely credentials, so only the location and the reason are reported.
-    """
+    """Summarise a validation failure without echoing configured values."""
     parts = []
     for error in exc.errors():
         location = ".".join(str(part) for part in error["loc"]) or "<root>"
@@ -307,9 +214,6 @@ def get_settings() -> Settings:
         ConfigurationError: The environment contains an invalid value, or two
             values contradict each other. The message names the offending
             fields but never their contents.
-
-    Call ``get_settings.cache_clear()`` to force a reload, which is what tests
-    do after changing the environment.
     """
     try:
         return Settings()

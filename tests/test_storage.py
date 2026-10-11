@@ -1,19 +1,4 @@
-"""Storage tests: a shared behaviour contract, run against two implementations.
-
-ADR-004 requires real PostgreSQL persistence *and* a suite that passes offline.
-The way both hold at once is that the important assertions are written once, as
-coroutines taking *any* storage, and then run twice — against the in-memory
-implementation (always) and against PostgreSQL (when a database is reachable,
-skipped with a reason when it is not).
-
-That structure is the point. If the two implementations ever disagree, the same
-assertion fails for one and passes for the other, which is a much clearer signal
-than two hand-written suites drifting apart.
-
-The PostgreSQL tests skip rather than fail when no database is configured, so
-``pytest`` stays green with the network down. Run them with ``DATABASE_URL`` set
-— either in the environment or via ``.env`` — to prove the SQL.
-"""
+"""Checks the same cache and session rules against in-memory and PostgreSQL stores."""
 
 from __future__ import annotations
 
@@ -57,9 +42,7 @@ NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
 UNREACHABLE_DSN = "postgresql://nobody@127.0.0.1:1/nothing"
 
 
-# ---------------------------------------------------------------------------
 # Builders
-# ---------------------------------------------------------------------------
 
 
 def _source(n: int) -> Source:
@@ -114,9 +97,7 @@ def _session(tag: str, created_at: datetime) -> ResearchSession:
     )
 
 
-# ---------------------------------------------------------------------------
 # The shared contract
-# ---------------------------------------------------------------------------
 
 
 async def assert_cache_contract(storage: Storage, tag: str) -> None:
@@ -205,19 +186,13 @@ async def assert_session_contract(storage: Storage, tag: str) -> None:
 
 @pytest.mark.parametrize("limit", [0, -1, -100])
 async def test_list_recent_rejects_non_positive_limit(limit: int) -> None:
-    """A limit below one raises rather than silently changing meaning.
-
-    PostgreSQL reads a negative ``LIMIT`` as *unlimited*, so without the guard
-    ``limit=-1`` would return every session ever stored.
-    """
+    """A limit below one raises rather than silently changing meaning."""
     storage = InMemoryStorage()
     with pytest.raises(ValueError, match="limit must be at least 1"):
         await storage.sessions.list_recent(limit=limit)
 
 
-# ---------------------------------------------------------------------------
 # In-memory implementation — always runs, no database required
-# ---------------------------------------------------------------------------
 
 
 async def test_in_memory_cache_contract() -> None:
@@ -236,11 +211,7 @@ async def test_in_memory_aclose_is_idempotent() -> None:
 
 
 async def test_connect_to_unreachable_database_raises_storage_error() -> None:
-    """Driver failures surface as StorageError, never as an asyncpg type.
-
-    This runs offline: nothing is listening on the port, so the failure is a
-    refused connection, and it still has to arrive translated.
-    """
+    """Driver failures surface as StorageError, never as an asyncpg type."""
     with pytest.raises(StorageError) as caught:
         await PostgresStorage.connect(UNREACHABLE_DSN)
 
@@ -250,9 +221,7 @@ async def test_connect_to_unreachable_database_raises_storage_error() -> None:
     assert isinstance(caught.value.__cause__, OSError | TimeoutError)
 
 
-# ---------------------------------------------------------------------------
 # PostgreSQL implementation — skips when no database is reachable
-# ---------------------------------------------------------------------------
 
 
 def _resolve_dsn() -> str | None:
@@ -298,12 +267,7 @@ async def cleanup(storage: Storage):
 
 
 async def test_connect_bounds_the_pool_open_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An unreachable database must fail fast, not wait out the driver's 60 s default.
-
-    The clean-clone reproduction (``artefacts/reproduction-codespaces-bfec78.txt``)
-    measured the old behaviour: seven skipped tests at sixty seconds each, because
-    ``create_pool`` was called without a timeout and asyncpg waits a minute by default.
-    """
+    """An unreachable database must fail fast, not wait out the driver's 60 s default."""
     opened: list[dict[str, object]] = []
 
     async def fake_create_pool(dsn: str, **kwargs: object) -> object:
@@ -328,19 +292,7 @@ async def test_connect_bounds_the_pool_open_timeout(monkeypatch: pytest.MonkeyPa
 async def test_connect_bounds_every_statement_the_pool_runs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A cache read sits outside the deadline that bounds the fetch beside it.
-
-    ``AIService.fetch_source`` wraps the fetch and its retries in
-    ``per_source_timeout_seconds``, but the orchestrator consults the cache
-    *before* calling it and stores the result *after*, so neither operation was
-    covered by that deadline — a database that answered slowly held retrieval
-    open past the per-source duration the README documented.
-
-    ``command_timeout`` bounds each statement instead. No new error handling is
-    needed for it: asyncpg raises ``TimeoutError``, which is already in
-    ``DRIVER_ERRORS``, so the failure arrives as a ``StorageError`` and the
-    cache degrades to a miss exactly as it does for any other database fault.
-    """
+    """A cache read sits outside the deadline that bounds the fetch beside it."""
     opened: list[dict[str, object]] = []
 
     async def fake_create_pool(dsn: str, **kwargs: object) -> object:
@@ -360,14 +312,7 @@ async def test_connect_bounds_every_statement_the_pool_runs(
 
 
 async def test_the_statement_bound_is_enforced_by_the_driver() -> None:
-    """The test above proves the bound is *passed*; this proves it is *applied*.
-
-    ``command_timeout`` is a driver feature, so nothing offline can settle
-    whether the argument does what the name says. Against a real server it can:
-    a statement that outlasts the bound is abandoned by asyncpg and raised as a
-    ``TimeoutError`` — the class ``DRIVER_ERRORS`` already translates — rather
-    than left running until the database or the connection gives up.
-    """
+    """The test above proves the bound is *passed*; this proves it is *applied*."""
     dsn = _resolve_dsn()
     if not dsn:
         pytest.skip("no DATABASE_URL configured; set it to run the SQL tests")
@@ -416,12 +361,7 @@ async def test_postgres_reapplying_migrations_is_a_no_op(storage: Storage) -> No
 async def test_postgres_rejects_a_payload_filed_under_the_wrong_key(
     storage: Storage, cleanup: str
 ) -> None:
-    """A cached entry whose payload disagrees with its key is refused.
-
-    Only reachable if a row is written by something other than ``put`` — a
-    hand-edit, or a future bug — but serving it would return one query's sources
-    for another query, which is worse than a miss.
-    """
+    """A cached entry whose payload disagrees with its key is refused."""
     pool = storage._pool  # type: ignore[attr-defined]
 
     # The row's *columns* must match the key we will look up — otherwise the
@@ -478,13 +418,7 @@ async def test_postgres_survives_a_reconnect(storage: Storage, cleanup: str) -> 
 async def test_postgres_refuses_a_migration_edited_after_it_was_applied(
     storage: Storage, tmp_path
 ) -> None:
-    """Migrations are append-only, and that is enforced rather than assumed.
-
-    The check is a checksum recorded at apply time. Without it, editing an
-    applied migration would be silently skipped on every later start — the
-    worst outcome, because the file would claim to describe the schema while
-    the database held something else.
-    """
+    """Migrations are append-only, and that is enforced rather than assumed."""
     applied = discover_migrations()[0]
     pool = storage._pool  # type: ignore[attr-defined]
 

@@ -1,30 +1,5 @@
-"""One research operation, from question to durable record.
-
-This is the application layer: the only place that knows the *order* of the
-work and what each step's failure means. Everything it uses is injected, so the
-whole sequence can be exercised against in-memory storage and a stubbed
-``AIService`` without a network or a database.
-
-Two decisions shape the class, and both are about what a failure should cost.
-
-**Bad input raises; a bad run is returned.** Anything wrong with the request or
-the configuration raises before any work is attempted, because those are exit
-status 2 — the user must change something and retrying is pointless. Everything
-after that point is a *result*: a run where all three sources failed is still a
-run that happened, and describing it inside a
-:class:`~researcher.models.ResearchResult` keeps the CLI free of control flow
-and gives the session store something complete to hold.
-
-**A failed run is still recorded.** Synthesis failing does not discard the
-retrieval: the sources were fetched, the provider was paid, and the outcomes
-explain what went wrong. The session is written either way, which is what makes
-a failure diagnosable after the fact rather than only in a log line.
-
-The one exception to both is :class:`~researcher.errors.ConfigurationError`
-raised *by synthesis*. A missing or rejected credential is not a property of
-this run, it is a property of the environment, and it will fail identically on
-every future run — so it is an exit status 2 even at that late stage, and it is
-allowed to propagate.
+"""Runs one question through validation, retrieval, answer generation, and optional session
+storage.
 """
 
 from __future__ import annotations
@@ -73,18 +48,13 @@ class ResearchService:
         settings: Settings,
         storage: Storage | None = None,
     ) -> None:
-        """Initialize the service.
+        """Set up the research workflow.
 
         Args:
-            ai: The ``ai`` boundary. Used for synthesis; retrieval is delegated
-                to ``orchestrator``, which holds its own reference to the same
-                object.
-            orchestrator: Performs the bounded, per-source fan-out.
-            settings: Supplies the persistence policy.
-            storage: Where completed sessions are written. ``None`` means the
-                run is not persisted and is reported as ``skipped`` rather than
-                as a failure — an unconfigured database is a choice, not a
-                fault.
+            ai: Service used to generate answers.
+            orchestrator: Fetches sources under a concurrency limit.
+            settings: Controls session storage.
+            storage: Saves completed sessions. None skips storage without a failure.
         """
         self._ai = ai
         self._orchestrator = orchestrator
@@ -107,10 +77,7 @@ class ResearchService:
             ConfigurationError: The configuration cannot serve this request, or
                 the provider rejected our credentials at synthesis time.
         """
-        # Raises before any network call. The canonical form is derived here so
-        # that every source is keyed by the same string, and so that a question
-        # consisting only of punctuation is rejected as bad input rather than
-        # surfacing as an unexpected error from inside the fan-out.
+        # Check the request and its cache key before making network calls.
         validate_request(request, self._settings)
         canonical_query = canonicalize_query(request.question)
 
@@ -130,9 +97,7 @@ class ResearchService:
         synthesis_seconds = 0.0
 
         if not retrieval.sources:
-            # Synthesis is skipped rather than called with an empty list: the
-            # supplied synthesizer raises ValueError for that, and paying for a
-            # request we know is unanswerable would be worse.
+            # Do not request an answer when retrieval returned no sources.
             warnings.append("no usable sources were retrieved, so no answer was produced")
             logger.warning("request %s produced no usable sources", request_id)
         else:
@@ -140,7 +105,7 @@ class ResearchService:
             try:
                 answer = await self._ai.synthesize(request.question, retrieval.sources)
             except ConfigurationError:
-                # Not this run's fault and not fixable by running again.
+                # A configuration problem needs a user change, not another run.
                 raise
             except ResearcherError as exc:
                 status = ResultStatus.FAILED
@@ -173,8 +138,7 @@ class ResearchService:
 
         persistence, note = await self._persist(session)
         if note is not None:
-            # Only ever set when the write failed, in which case there is no
-            # stored copy whose warnings would have to match this one.
+            # Only a failed write adds a warning after the session snapshot is built.
             warnings.append(note)
 
         return ResearchResult(
@@ -189,14 +153,7 @@ class ResearchService:
         )
 
     async def _persist(self, session: ResearchSession) -> tuple[PersistenceStatus, str | None]:
-        """Write ``session``, and describe rather than raise a write failure.
-
-        A failed session write is not allowed to discard an answer the user has
-        already paid for, but it must not pass silently either: the run is
-        reported as unsaved so the CLI can exit non-zero, which is what makes
-        "the answer is right there but nothing was recorded" visible instead of
-        discovered later as a gap in the history.
-        """
+        """Write ``session``, and describe rather than raise a write failure."""
         if self._storage is None or not self._settings.persistence_enabled:
             return PersistenceStatus.SKIPPED, None
         try:
@@ -212,12 +169,7 @@ class ResearchService:
 
 
 def _status_for(outcomes: Iterable[SourceOutcome]) -> ResultStatus:
-    """Describe a run that produced an answer: complete, or degraded.
-
-    Degraded means any selected source did not fully contribute — including one
-    that answered with nothing, since a reader deciding how much to trust the
-    answer needs to know a source came back empty, not just that none errored.
-    """
+    """Describe a run that produced an answer: complete, or degraded."""
     if all(outcome.status is SourceStatus.SUCCESS for outcome in outcomes):
         return ResultStatus.SUCCESS
     return ResultStatus.PARTIAL
@@ -242,13 +194,7 @@ def _describe_outcomes(outcomes: Iterable[SourceOutcome]) -> list[str]:
 
 
 def _describe_dangling_citations(answer: AnswerWithCitations) -> list[str]:
-    """Warn about reference numbers the prose uses but the answer does not hold.
-
-    The supplied synthesizer drops out-of-range indices from the citation list
-    without editing the answer text, so prose citing ``[7]`` can ship with three
-    references. Those markers are reported rather than rendered as though they
-    resolved.
-    """
+    """Warn about reference numbers the prose uses but the answer does not hold."""
     dangling = unreferenced_citation_indices(answer)
     if not dangling:
         return []

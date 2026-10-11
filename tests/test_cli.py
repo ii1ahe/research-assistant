@@ -1,22 +1,5 @@
-"""The command line: what the user types, and what comes back.
-
-Two things are being tested, and they are different in kind. The first is
-*parsing* — that the argument surface means what the help text says, including
-the aliases, which live in ``researcher.validation`` and are imported here so
-the two cannot drift. The second is the *contract*: the exit status table, and
-the split between the stream that carries the answer and the stream that carries
-everything else. ``researcher ask "…" > answer.md`` has to produce a file worth
-keeping, and the only way to know it does is to assert on both streams.
-
-``main`` is synchronous and ``run`` is asynchronous, so these are sync tests
-driving ``main`` — which is also the function the entry point actually calls, so
-the assertion is made against the real seam rather than a step inside it.
-
-Nothing here reaches a network or a database. ``cli.bootstrap`` is replaced with
-a stub context manager, which is the single call that would build the object
-graph; what it yields records the requests it was given and returns scripted
-results. ``bootstrap`` and the graph it builds have their own tests in
-``test_bootstrap.py``.
+"""Checks command parsing, research requests, demo and purge commands, output streams, and exit
+codes.
 """
 
 from __future__ import annotations
@@ -47,12 +30,7 @@ from tests.conftest import make_result
 
 
 class Recorder:
-    """Stands in for :class:`~researcher.core.researcher.ResearchService`.
-
-    Records what it was asked and answers with the scripted results in order, so
-    a test asserts on the request the CLI actually built rather than on the
-    arguments it started from.
-    """
+    """Stands in for :class:`~researcher.core.researcher.ResearchService`."""
 
     def __init__(self, results: Sequence[ResearchResult] = (), error: Exception | None = None):
         self._results = list(results)
@@ -117,18 +95,7 @@ SettingsFactory = Callable[..., Settings]
 
 @pytest.fixture
 def install(monkeypatch: pytest.MonkeyPatch, make_settings: SettingsFactory) -> Iterator[Build]:
-    """Return a helper that replaces ``cli.bootstrap`` with a stub.
-
-    The stub is a real async context manager, so the ``async with`` in ``run``
-    is exercised — including its teardown, which is what makes the interruption
-    and broken-pipe cases meaningful.
-
-    ``cli.get_settings`` is replaced too. ``run`` consults it to resolve an
-    omitted ``--max-results`` from the configured ceiling, and without this
-    every test driving ``main`` would read the machine's own ``.env``. The
-    default here is the same valid, unremarkable configuration the rest of the
-    suite uses; a test that cares about the ceiling overrides it.
-    """
+    """Return a helper that replaces ``cli.bootstrap`` with a stub."""
     monkeypatch.setattr(cli, "get_settings", make_settings)
 
     def build(
@@ -175,18 +142,11 @@ def _demo_file(tmp_path: Path, count: int = 2) -> Path:
     return path
 
 
-# ---------------------------------------------------------------------------
 # The argument surface
-# ---------------------------------------------------------------------------
 
 
 def test_ask_defaults_select_every_source_and_name_no_limit() -> None:
-    """An omitted ``--max-results`` is "unspecified", not a number.
-
-    The parser deliberately does not supply a value: a number here would be the
-    CLI's own copy of a configurable setting, and the two would disagree the
-    moment someone configured ``MAX_RESULTS_PER_SOURCE`` below it.
-    """
+    """An omitted ``--max-results`` is "unspecified", not a number."""
     args = cli.build_parser().parse_args(["ask", "why is the sky blue"])
 
     assert args.sources == ",".join(cli.SOURCE_CHOICES)
@@ -197,15 +157,7 @@ def test_ask_defaults_select_every_source_and_name_no_limit() -> None:
 def test_an_omitted_limit_follows_the_configured_ceiling(
     install: Build, make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A ceiling below the old hardcoded default must not break an ordinary ask.
-
-    ``--max-results`` defaulted to three, which is also the *default* of
-    ``MAX_RESULTS_PER_SOURCE`` — so the two agreed until the ceiling was
-    configured lower, at which point every ordinary ``ask`` failed validation
-    with "--max-results 3 exceeds the configured limit of 2" for a limit the
-    user never typed. Omitting the flag means "use the configured ceiling", so
-    the number the request carries is always one the configuration allows.
-    """
+    """A ceiling below the old hardcoded default must not break an ordinary ask."""
     monkeypatch.setattr(cli, "get_settings", lambda: make_settings(max_results_per_source=2))
     service, _ = install()
 
@@ -231,12 +183,7 @@ def test_demo_follows_the_configured_ceiling(
 def test_an_explicit_limit_above_the_ceiling_is_still_rejected(
     install: Build, make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The ceiling still binds a limit the user actually typed.
-
-    Resolving the *default* from the configuration must not turn into ignoring
-    the ceiling for explicit values, which is the check the resolution exists to
-    stay inside.
-    """
+    """The ceiling still binds a limit the user actually typed."""
     monkeypatch.setattr(cli, "get_settings", lambda: make_settings(max_results_per_source=2))
     install(error=InvalidRequestError("--max-results 5 exceeds the configured limit of 2"))
 
@@ -270,11 +217,7 @@ def test_version_is_reported_and_exits_successfully(capsys: pytest.CaptureFixtur
 def test_every_alias_the_help_advertises_actually_selects_its_source(
     install: Build, alias: str, canonical: str
 ) -> None:
-    """The help text is generated from the alias table, so it cannot lie.
-
-    Checked by using the alias rather than by reading the table back, because a
-    table that stopped being consulted would still generate the same sentence.
-    """
+    """The help text is generated from the alias table, so it cannot lie."""
     service, _ = install(results=[make_result()])
 
     cli.main(["ask", "q", "--sources", alias])
@@ -282,9 +225,7 @@ def test_every_alias_the_help_advertises_actually_selects_its_source(
     assert service.requests[0].sources == (SourceName(canonical),)
 
 
-# ---------------------------------------------------------------------------
 # The supplied question set
-# ---------------------------------------------------------------------------
 
 
 def test_the_shipped_question_set_loads() -> None:
@@ -347,9 +288,7 @@ def test_an_entry_without_an_id_or_a_source_list_gets_a_sensible_default(tmp_pat
     assert question.sources == cli.SOURCE_CHOICES
 
 
-# ---------------------------------------------------------------------------
 # The exit status contract
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -376,30 +315,19 @@ def test_an_entry_without_an_id_or_a_source_list_gets_a_sensible_default(tmp_pat
 def test_the_exit_status_contract(
     status: ResultStatus, persistence: PersistenceStatus, expected: int
 ) -> None:
-    """The table in the module docstring, asserted row by row.
-
-    ``PARTIAL`` exiting 0 is the row that matters: a degraded answer the user
-    was *told* about is a success, and exiting 1 would push a caller into
-    treating a usable answer as a failure.
-    """
+    """The table in the module docstring, asserted row by row."""
     result = make_result(status=status, persistence=persistence)
 
     assert cli.exit_status(result) == expected
 
 
-# ---------------------------------------------------------------------------
 # The streams
-# ---------------------------------------------------------------------------
 
 
 def test_the_answer_goes_to_stdout_and_the_diagnostics_to_stderr(
     install: Build, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The whole reason the split exists: a redirect must capture the answer.
-
-    Otherwise ``researcher ask "…" > answer.md`` writes the source table and the
-    timings into the middle of the document.
-    """
+    """The whole reason the split exists: a redirect must capture the answer."""
     install(results=[make_result(question="q")])
 
     cli.main(["ask", "q"])
@@ -435,9 +363,7 @@ def test_a_run_with_no_usable_answer_exits_one(install: Build) -> None:
     assert cli.main(["ask", "q"]) == cli.EXIT_FAILURE
 
 
-# ---------------------------------------------------------------------------
 # Building the request
-# ---------------------------------------------------------------------------
 
 
 def test_source_aliases_are_normalised_before_the_request_is_built(install: Build) -> None:
@@ -478,12 +404,7 @@ def test_an_empty_source_list_is_refused_before_anything_is_opened(install: Buil
 def test_an_unknown_source_is_refused_before_anything_is_opened(
     install: Build, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Exit status 2, and the graph is never built.
-
-    Validating inside the ``async with`` would report the same status for the
-    same reason, but only after dialling a database and opening a connection
-    pool to do nothing with.
-    """
+    """Exit status 2, and the graph is never built."""
     service, opened = install(results=[make_result()])
 
     code = cli.main(["ask", "q", "--sources", "gopher"])
@@ -507,9 +428,7 @@ def test_building_a_request_reports_a_bad_source_as_an_invalid_request() -> None
         cli._build_request("q", "gopher", use_cache=True, max_results=3)
 
 
-# ---------------------------------------------------------------------------
 # Failure paths
-# ---------------------------------------------------------------------------
 
 
 def test_bad_configuration_exits_two_with_a_message_that_names_us(
@@ -559,9 +478,7 @@ def test_a_closed_stdout_is_not_blamed_on_the_user(install: Build) -> None:
     assert stdout.closed, "the pipe should be closed rather than left dangling"
 
 
-# ---------------------------------------------------------------------------
 # demo
-# ---------------------------------------------------------------------------
 
 
 def test_demo_asks_every_question_in_order(
@@ -618,12 +535,7 @@ def test_demo_honours_no_cache_for_every_question(
 def test_demo_reads_the_whole_question_set_before_asking_any_of_it(
     install: Build, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A malformed set costs nothing, even when its earlier entries are fine.
-
-    Every question is parsed before the first is asked, so the failure is
-    discovered from a file already on disk rather than after two questions have
-    spent the providers' quota.
-    """
+    """A malformed set costs nothing, even when its earlier entries are fine."""
     service, opened = install()
     path = tmp_path / "questions.json"
     path.write_text(
@@ -638,14 +550,10 @@ def test_demo_reads_the_whole_question_set_before_asking_any_of_it(
     assert opened.count == 0
 
 
-# ---------------------------------------------------------------------------
 # The module entry point
-# ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
 # purge
-# ---------------------------------------------------------------------------
 
 
 def _purge_settings(database_url: str | None) -> SimpleNamespace:
@@ -718,15 +626,7 @@ def test_a_purge_the_database_refuses_exits_one(
 def test_python_dash_m_delegates_to_the_cli_and_propagates_its_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``python -m researcher`` is documented, so it is tested like any other seam.
-
-    Run through ``runpy`` rather than a subprocess so the call lands in this
-    process and the assertion is about the delegation itself: the module must
-    pass its own arguments through untouched and turn ``main``'s return value
-    into the process exit status. A subprocess test would prove the same thing
-    more slowly, and its coverage would not reach the report — ``pytest-cov``
-    measures this process, not the one it spawns.
-    """
+    """``python -m researcher`` is documented, so it is tested like any other seam."""
     seen: list[Sequence[str] | None] = []
 
     def fake_main(argv: Sequence[str] | None = None) -> int:

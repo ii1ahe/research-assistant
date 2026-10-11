@@ -1,22 +1,4 @@
-"""The application layer: what one request does, and what each failure costs.
-
-The service is the only place that knows the order of the work, so these tests
-are written as claims about that order rather than as claims about the pieces.
-
-1. *Bad input costs nothing.* An unacceptable request or configuration must
-   fail before a single provider is contacted, because that is exit status 2 —
-   the user has to change something, and retrying spends quota to learn nothing.
-2. *A bad run still produces a result.* Retrieval degrading, or synthesis
-   failing outright, is reported inside a :class:`ResearchResult` rather than
-   raised. A run where all three sources died is still a run that happened, and
-   it is persisted, which is what makes it diagnosable afterwards.
-3. *One exception to both.* A rejected credential at synthesis time is a
-   property of the environment, not of this run, so it propagates.
-
-Storage is the in-memory double from ADR-004 and the ``AIService`` is the stub
-from ``conftest``; the real boundary is covered by ``test_ai_service.py``. What
-is tested here is sequencing, and a stub makes that visible.
-"""
+"""Checks the full research workflow with fake providers and in-memory storage."""
 
 from __future__ import annotations
 
@@ -81,12 +63,7 @@ def _service(
     storage: Any = None,
     cache: Any = None,
 ) -> ResearchService:
-    """Wire the real orchestrator and cache around a stubbed ``AIService``.
-
-    The service's collaborators are real rather than stubbed because the
-    interesting behaviour here lives in how they are sequenced; a stub
-    orchestrator would let a sequencing bug pass by simply agreeing with it.
-    """
+    """Wire the real orchestrator and cache around a stubbed ``AIService``."""
     orchestrator = Orchestrator(
         ai, CacheService(cache or InMemorySourceCache(), settings), settings
     )
@@ -146,9 +123,7 @@ class BrokenStorage:
         """Release nothing."""
 
 
-# ---------------------------------------------------------------------------
 # A run that works
-# ---------------------------------------------------------------------------
 
 
 async def test_a_clean_run_succeeds(make_settings: SettingsFactory) -> None:
@@ -188,13 +163,7 @@ async def test_the_answer_is_synthesised_from_the_retrieved_sources(
 async def test_the_original_question_is_never_replaced_by_its_canonical_form(
     make_settings: SettingsFactory,
 ) -> None:
-    """Canonicalisation is cache-key material, and must not leak into the run.
-
-    The question the user typed is what gets searched, what gets answered, and
-    what gets reported back; only the cache is allowed to see the normalised
-    form. Passed to the provider in lower case, a question loses its proper
-    nouns — which is a silently worse answer, not a failed one.
-    """
+    """Canonicalisation is cache-key material, and must not leak into the run."""
     ai = StubAIService()
     service = _service(make_settings(), ai)
     asked = "  What IS Photosynthesis?  "
@@ -232,15 +201,7 @@ async def test_questions_differing_only_in_case_share_a_cache_entry(
 async def test_questions_that_differ_by_a_meaningful_character_keep_separate_keys(
     make_settings: SettingsFactory,
 ) -> None:
-    """``C`` and ``C#`` are different questions and must not share sources.
-
-    Edge punctuation is stripped so that trailing decoration cannot split a
-    cache entry. ``#`` is not decoration — it is part of an identifier — and
-    stripping it made a question about the C language serve the sources
-    retrieved for the C# language. The failure is quiet: the answer is
-    synthesised from the wrong sources and cites them correctly, so nothing
-    downstream can tell that the retrieval was for a different question.
-    """
+    """``C`` and ``C#`` are different questions and must not share sources."""
     ai = StubAIService()
     service = _service(make_settings(), ai)
 
@@ -257,9 +218,7 @@ async def test_questions_that_differ_by_a_meaningful_character_keep_separate_key
     ]
 
 
-# ---------------------------------------------------------------------------
 # Degradation
-# ---------------------------------------------------------------------------
 
 
 async def test_a_failed_source_makes_the_run_partial_and_says_which(
@@ -278,12 +237,7 @@ async def test_a_failed_source_makes_the_run_partial_and_says_which(
 async def test_a_source_that_returned_nothing_makes_the_run_partial(
     make_settings: SettingsFactory,
 ) -> None:
-    """Empty is not the same as failed, and the reader is told which happened.
-
-    A source that answered with nothing has not degraded the *answer*, but it
-    has limited it, and the difference between "arxiv was down" and "arxiv had
-    nothing" changes what a reader should do next.
-    """
+    """Empty is not the same as failed, and the reader is told which happened."""
     ai = StubAIService(outcomes={SourceName.ARXIV: _empty(SourceName.ARXIV)})
     service = _service(make_settings(), ai)
 
@@ -335,11 +289,7 @@ async def test_a_synthesis_failure_is_reported_as_a_failed_run(
 
 
 async def test_a_rejected_credential_propagates(make_settings: SettingsFactory) -> None:
-    """Exit status 2 even this late: it is the environment, not this run.
-
-    Reported as a failed run it would be retried forever, unchanged; raised it
-    tells the user their key is wrong, which is the only thing that fixes it.
-    """
+    """Exit status 2 even this late: it is the environment, not this run."""
     ai = StubAIService(error=ConfigurationError("no usable google_api_key is configured"))
     storage = InMemoryStorage()
     service = _service(make_settings(database_url=_DSN), ai, storage=storage)
@@ -350,9 +300,7 @@ async def test_a_rejected_credential_propagates(make_settings: SettingsFactory) 
     assert await storage.sessions.list_recent() == ()
 
 
-# ---------------------------------------------------------------------------
 # Bad input costs nothing
-# ---------------------------------------------------------------------------
 
 
 async def test_an_overlong_question_fails_before_any_provider_is_contacted(
@@ -376,12 +324,7 @@ async def test_an_overlong_question_fails_before_any_provider_is_contacted(
 async def test_a_punctuation_only_question_fails_before_any_provider_is_contacted(
     make_settings: SettingsFactory,
 ) -> None:
-    """It passes the structural check, so only canonicalisation can catch it.
-
-    Left to the fan-out, this would surface as an internal error mid-gather —
-    after quota had been spent, and reported as a source failure rather than as
-    something the user can fix.
-    """
+    """It passes the structural check, so only canonicalisation can catch it."""
     ai = StubAIService()
     service = _service(make_settings(), ai)
 
@@ -418,9 +361,7 @@ async def test_a_web_request_without_a_credential_fails_before_any_fetch(
     assert ai.fetched == []
 
 
-# ---------------------------------------------------------------------------
 # Persistence
-# ---------------------------------------------------------------------------
 
 
 async def test_a_completed_session_is_saved_and_reported_as_such(
@@ -484,11 +425,7 @@ async def test_persistence_is_skipped_when_no_storage_was_configured(
 async def test_persistence_is_skipped_when_there_is_no_database_url(
     make_settings: SettingsFactory,
 ) -> None:
-    """``persist_sessions`` alone is not enough; the DSN is what makes it real.
-
-    Storage is injected here, so a service that checked only ``persist_sessions``
-    would attempt a write against a database it was never told about.
-    """
+    """``persist_sessions`` alone is not enough; the DSN is what makes it real."""
     storage = InMemoryStorage()
     settings = make_settings(database_url=None)
     service = _service(settings, StubAIService(), storage=storage)
@@ -520,11 +457,7 @@ async def test_persistence_is_skipped_when_it_is_switched_off(
 async def test_a_failed_write_does_not_discard_the_answer(
     make_settings: SettingsFactory,
 ) -> None:
-    """The user already paid for the answer; losing it to a disk fault is worse.
-
-    But it must not pass silently either, or "nothing was recorded" is found
-    later as a gap in the history rather than now, when it can be said out loud.
-    """
+    """The user already paid for the answer; losing it to a disk fault is worse."""
     storage = BrokenStorage()
     service = _service(make_settings(database_url=_DSN), StubAIService(), storage=storage)
 
@@ -537,20 +470,13 @@ async def test_a_failed_write_does_not_discard_the_answer(
     assert storage.sessions.calls == 1
 
 
-# ---------------------------------------------------------------------------
 # Dangling citations
-# ---------------------------------------------------------------------------
 
 
 async def test_a_citation_with_no_matching_reference_is_reported(
     make_settings: SettingsFactory,
 ) -> None:
-    """The supplied synthesizer drops out-of-range indices without editing prose.
-
-    The answer text is not rewritten — that would be putting words in the
-    model's mouth — so the marker is reported instead of being rendered as
-    though it resolved to something.
-    """
+    """The supplied synthesizer drops out-of-range indices without editing prose."""
     answer = AnswerWithCitations(
         question="what is photosynthesis",
         answer="Plants convert light into sugar [1]. The stroma is involved [7].",
@@ -575,9 +501,7 @@ async def test_an_answer_whose_citations_all_resolve_produces_no_warning(
     assert not any("no matching reference" in note for note in result.warnings)
 
 
-# ---------------------------------------------------------------------------
 # Timing
-# ---------------------------------------------------------------------------
 
 
 async def test_timings_are_recorded_for_the_run(make_settings: SettingsFactory) -> None:
@@ -618,11 +542,7 @@ async def test_the_run_is_identified_by_a_fresh_id_each_time(
 async def test_a_run_does_not_leave_a_pending_task_behind(
     make_settings: SettingsFactory,
 ) -> None:
-    """Nothing is detached: the service awaits everything it starts.
-
-    A leaked task would outlive its caller, write to a closed pool, and surface
-    only as an unrelated error in a later test.
-    """
+    """Nothing is detached: the service awaits everything it starts."""
     service = _service(make_settings(), StubAIService())
 
     before = asyncio.all_tasks()

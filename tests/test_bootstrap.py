@@ -1,15 +1,4 @@
-"""Composition, and the guarantee that nothing is left open.
-
-``bootstrap`` is the only module that touches the outside world, so these tests
-are about two things: that the graph it builds is the graph the rest of the
-application expects, and that every resource it opens is released on every path
-out — the path that returns, the path that raises, and the path where setup
-itself fails halfway.
-
-Nothing here reaches the network or a database. The database is simulated by
-replacing ``PostgresStorage.connect``, which is the single call that would open
-a socket.
-"""
+"""Checks service setup, optional storage, and connection cleanup on success and failure."""
 
 from __future__ import annotations
 
@@ -86,9 +75,7 @@ def _unreachable(cls: type, dsn: str, **kwargs: Any) -> Any:
     raise StorageError("could not connect to the database", source="storage")
 
 
-# ---------------------------------------------------------------------------
 # Storage
-# ---------------------------------------------------------------------------
 
 
 async def test_no_dsn_means_no_database_and_no_error(make_settings: SettingsFactory) -> None:
@@ -115,12 +102,7 @@ async def test_a_configured_database_is_opened(
 async def test_an_unreachable_database_names_the_variable_that_would_avoid_it(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Exit status 2, and a message that says what to do about it.
-
-    Quietly downgrading to running without persistence would mean the user
-    discovered their sessions were never recorded days later, from an empty
-    history, with nothing to point at.
-    """
+    """Exit status 2, and a message that says what to do about it."""
     monkeypatch.setattr(PostgresStorage, "connect", classmethod(_unreachable))
 
     with pytest.raises(ConfigurationError) as caught:
@@ -130,9 +112,7 @@ async def test_an_unreachable_database_names_the_variable_that_would_avoid_it(
     assert _DSN not in str(caught.value)
 
 
-# ---------------------------------------------------------------------------
 # The graph
-# ---------------------------------------------------------------------------
 
 
 async def test_bootstrap_yields_a_service_and_no_storage_without_a_database(
@@ -144,13 +124,7 @@ async def test_bootstrap_yields_a_service_and_no_storage_without_a_database(
 
 
 async def test_bootstrap_uses_the_settings_it_was_given(make_settings: SettingsFactory) -> None:
-    """Explicit settings must win, or every test would read the developer's .env.
-
-    ``storage is None`` is the observable proof. The fixture sets
-    ``database_url=None`` while the developer's own ``.env`` very likely sets a
-    DSN, so a ``bootstrap`` that consulted the environment instead would have
-    opened a connection here.
-    """
+    """Explicit settings must win, or every test would read the developer's .env."""
     settings = make_settings(database_url=None, llm_model="a-model-only-this-test-knows")
 
     async with bootstrap(settings) as application:
@@ -162,12 +136,7 @@ async def test_bootstrap_uses_the_settings_it_was_given(make_settings: SettingsF
 async def test_a_missing_credential_fails_before_any_work_and_still_cleans_up(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Every run ends in synthesis, so a missing key is fatal at startup.
-
-    Checked before the first fetch rather than at first use, because otherwise
-    retrieval would spend the user's time and the providers' quota on an answer
-    that could never be produced. The client already built must still close.
-    """
+    """Every run ends in synthesis, so a missing key is fatal at startup."""
     client = httpx.AsyncClient()
     monkeypatch.setattr(bootstrap_module, "build_client", lambda settings: client)
 
@@ -181,13 +150,7 @@ async def test_a_missing_credential_fails_before_any_work_and_still_cleans_up(
 async def test_a_credential_failure_after_the_database_opened_releases_both(
     make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The one ordering where two resources are open when setup is rejected.
-
-    A credential problem is found after the database is dialled, so this is the
-    only path on which the pool *and* the client can both be live with nothing
-    to hand them to. Both must close, which is why the assembly step has its own
-    ``except`` rather than sharing the one around ``open_storage``.
-    """
+    """The one ordering where two resources are open when setup is rejected."""
     client = httpx.AsyncClient()
     storage = RecordingStorage()
     monkeypatch.setattr(bootstrap_module, "build_client", lambda settings: client)
@@ -205,9 +168,7 @@ async def test_a_credential_failure_after_the_database_opened_releases_both(
     assert client.is_closed
 
 
-# ---------------------------------------------------------------------------
 # Lifecycle
-# ---------------------------------------------------------------------------
 
 
 async def test_the_http_client_is_open_inside_and_closed_afterwards(

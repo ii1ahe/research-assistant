@@ -1,17 +1,4 @@
-"""The classification boundary: ``ProviderError`` text becomes our taxonomy.
-
-``AIService`` translates the supplied package's one coarse ``ProviderError``
-into the errors the rest of the application reasons about. The split that
-matters here is three-way: a misconfiguration passes its actionable text
-through, a throttle is recognised — and the delay the provider names is parsed
-out of the payload while it still exists — and everything else is replaced
-with a generic message so provider payload can never reach a log or a user.
-
-Kept sync and separate from ``test_ai_service.py`` because these are pure
-string functions under no event loop, and that module is marked asyncio
-strict. The consumption of the parsed delay is covered by
-``test_resilience.py``; this module is about what the boundary produces.
-"""
+"""Checks how provider errors and retry hints become app errors without exposing raw payloads."""
 
 from __future__ import annotations
 
@@ -31,13 +18,7 @@ _GEMINI_THROTTLE = (
 
 
 class _StatusError(Exception):
-    """The shape a provider SDK's status error has: an exception with a response.
-
-    ``google.genai.errors.APIError`` and ``anthropic.APIStatusError`` both
-    expose the HTTP response as a public ``.response``, and the response as a
-    public ``.headers``. Neither SDK is imported here — the translation layer
-    reads those two attributes by name, so this stands in for either.
-    """
+    """The shape a provider SDK's status error has: an exception with a response."""
 
     def __init__(self, response: httpx.Response) -> None:
         super().__init__(f"status {response.status_code}")
@@ -45,12 +26,7 @@ class _StatusError(Exception):
 
 
 def _provider_error(message: str, *, retry_after: str | None = None) -> ProviderError:
-    """Build what ``ai.providers.*`` raises: a ``ProviderError`` caused by the SDK's.
-
-    The supplied providers wrap with ``raise ProviderError(...) from exc``, so
-    the SDK exception — and the response on it — survives as ``__cause__``.
-    That is the whole reason the header is reachable without importing an SDK.
-    """
+    """Build what ``ai.providers.*`` raises: a ``ProviderError`` caused by the SDK's."""
     headers = {"Retry-After": retry_after} if retry_after is not None else {}
     try:
         raise _StatusError(httpx.Response(429, headers=headers))
@@ -60,9 +36,7 @@ def _provider_error(message: str, *, retry_after: str | None = None) -> Provider
         return error
 
 
-# ---------------------------------------------------------------------------
 # Throttle classification
-# ---------------------------------------------------------------------------
 
 
 def test_a_throttle_that_names_a_delay_carries_it() -> None:
@@ -97,9 +71,7 @@ def test_a_rate_limited_source_fetch_is_classified_the_same_way() -> None:
     assert error.source == "web"
 
 
-# ---------------------------------------------------------------------------
 # The payload does not travel
-# ---------------------------------------------------------------------------
 
 
 def test_the_provider_payload_never_reaches_the_message() -> None:
@@ -132,9 +104,7 @@ def test_a_misconfiguration_is_classified_before_throttling() -> None:
     assert not error.retryable
 
 
-# ---------------------------------------------------------------------------
 # Delay parsing
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -169,19 +139,11 @@ def test_text_that_is_not_an_instruction_produces_no_hint(text: str) -> None:
     assert _retry_after_hint(text) is None
 
 
-# ---------------------------------------------------------------------------
 # The HTTP header
-# ---------------------------------------------------------------------------
 
 
 def test_a_retry_after_header_is_honoured_when_the_text_names_no_delay() -> None:
-    """A header is machine-readable; the text is prose we pattern-match.
-
-    Google's free tier can throttle with a bare ``429`` in the message and the
-    delay only in the header. Reading it needs no SDK import and no private
-    attribute: the response survives on ``__cause__``, and ``.response.headers``
-    is public on both SDKs this application can be pointed at.
-    """
+    """A header is machine-readable; the text is prose we pattern-match."""
     error = _translate(
         _provider_error("Gemini call failed: 429 Too Many Requests", retry_after="21.9"),
         source="synthesis",
@@ -204,12 +166,7 @@ def test_a_header_makes_a_throttle_the_text_never_named() -> None:
 
 
 def test_the_text_hint_keeps_precedence_over_the_header() -> None:
-    """The existing behaviour is preserved, not replaced.
-
-    A provider that says both is saying the same thing twice; where they
-    disagree the text is the one already covered by tests and by the earlier
-    phase's evidence, so the header is a fallback and never an override.
-    """
+    """The existing behaviour is preserved, not replaced."""
     error = _translate(
         _provider_error("Gemini call failed: 429. Please retry in 5s", retry_after="30"),
         source="synthesis",
@@ -219,15 +176,7 @@ def test_the_text_hint_keeps_precedence_over_the_header() -> None:
 
 
 def test_an_http_date_header_is_deliberately_not_read() -> None:
-    """A date is only as trustworthy as the clock that reads it.
-
-    ``Retry-After`` is allowed to be an HTTP-date. Converting it means
-    comparing against the local clock, and a machine an hour out would wait an
-    hour — or not wait at all. That is the same reasoning that already discards
-    delays named in units we might misread: a value we cannot be sure of is
-    better discarded than misread. The throttle is still classified; only the
-    number is dropped.
-    """
+    """A date is only as trustworthy as the clock that reads it."""
     error = _translate(
         _provider_error("Gemini call failed: 429", retry_after="Wed, 21 Oct 2026 07:28:00 GMT"),
         source="synthesis",
@@ -259,13 +208,7 @@ def test_a_header_on_a_misconfiguration_changes_nothing() -> None:
 
 
 def test_a_broken_cause_chain_does_not_break_translation() -> None:
-    """Introspection is best-effort, and the boundary must still classify.
-
-    ``__cause__`` holds whatever the SDK raised. If walking it raises — a
-    property that throws, an object that lies about its type — the result must
-    stay a failure of the *provider*, never a new failure of the translation
-    layer, which is where an unclassifiable error would be worst placed.
-    """
+    """Introspection is best-effort, and the boundary must still classify."""
 
     class HostileError(Exception):
         """Every attribute access is a landmine."""

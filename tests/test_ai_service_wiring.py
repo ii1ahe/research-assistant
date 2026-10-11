@@ -1,22 +1,4 @@
-"""Getting credentials into the supplied providers.
-
-Separated from ``test_ai_service.py`` because none of it needs an event loop:
-this is construction and argument-passing, and keeping it apart stops a
-module-level asyncio mark from landing on sync tests.
-
-The subject is narrow and load-bearing. The supplied providers read
-``os.getenv`` and nothing loads ``.env`` into the process environment, so a
-:class:`~researcher.config.Settings` object gets a provider nowhere on its own.
-Constructing each provider with an explicit ``api_key`` and ``model`` is the
-only path by which a configured credential arrives — which is why these tests
-assert on constructor *arguments* rather than on a stubbed-out provider's
-behaviour. A test that replaced the provider wholesale would still pass with
-that line deleted.
-
-The private ``_llm_provider`` / ``_web_provider`` seam is what is called here,
-deliberately: it is the function that performs the hand-off, and reaching it
-through a fetch would mean a network call to observe an argument.
-"""
+"""Checks that provider keys, models, and timeouts reach the right adapters."""
 
 from __future__ import annotations
 
@@ -25,9 +7,7 @@ import pytest
 from researcher.errors import ConfigurationError
 from researcher.services.ai_service import AIService
 
-# ---------------------------------------------------------------------------
 # Construction
-# ---------------------------------------------------------------------------
 
 
 def test_a_missing_llm_credential_fails_at_construction(make_settings) -> None:
@@ -55,12 +35,7 @@ def test_a_missing_web_credential_does_not_fail_at_construction(make_settings) -
 
 
 def test_the_provider_identity_reports_what_will_actually_run(make_settings) -> None:
-    """The session snapshot records this, so it must reflect the resolved model.
-
-    An unset ``LLM_MODEL`` falls back to the provider's default, and reporting
-    the empty string instead of that default would make a stored session
-    unreproducible.
-    """
+    """The session snapshot records this, so it must reflect the resolved model."""
     identity = AIService(make_settings(llm_model=None)).provider_identity
 
     assert identity.llm_provider == "gemini"
@@ -68,9 +43,7 @@ def test_the_provider_identity_reports_what_will_actually_run(make_settings) -> 
     assert identity.web_search_provider == "tavily"
 
 
-# ---------------------------------------------------------------------------
 # The LLM bridge
-# ---------------------------------------------------------------------------
 
 
 def test_the_llm_provider_receives_the_configured_model_and_key(
@@ -136,9 +109,7 @@ def test_the_llm_provider_is_built_once(make_settings, monkeypatch: pytest.Monke
     assert builds == 1
 
 
-# ---------------------------------------------------------------------------
 # The web-search bridge
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

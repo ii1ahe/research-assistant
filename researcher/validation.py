@@ -1,24 +1,5 @@
-"""Input normalisation and output validation.
-
-This module owns two things the rest of the application relies on:
-
-**Entry-point validation.** Raw CLI strings are turned into the typed values of
-:mod:`researcher.models`, and those values are then checked against
-:class:`researcher.config.Settings`. Everything a user can get wrong — an
-unknown source name, an oversized question, a web search with no credential —
-is rejected here, with a message that says what to do, before any network call
-is made.
-
-**Semantic output validation.** The supplied ``ai.synthesize`` numbers citations
-by position in the source list it was given, and drops out-of-range indices from
-``AnswerWithCitations.citations``. It does *not* rewrite the answer prose, so an
-answer can still contain a ``[7]`` that has no corresponding reference. The
-checks here detect that and the related renumbering hazards rather than letting
-a dangling citation reach the user.
-
-Source-name aliases live here and nowhere else: the CLI imports them from this
-module, so there is exactly one table to keep in step with the supplied
-``ai.sources`` factories.
+"""Checks questions and source names, builds cache keys, removes duplicate URLs, and checks
+citation references.
 """
 
 from __future__ import annotations
@@ -49,49 +30,26 @@ __all__ = [
 #: Canonical source names, in the order used when none is specified.
 SOURCE_NAMES: Final[tuple[str, ...]] = tuple(name.value for name in SourceName)
 
-#: Accepted shorthands, normalised to their canonical name. This is the only
-#: definition; ``researcher.cli`` imports it rather than repeating it. ``wiki``
-#: is the sole alias the README and the CLI help advertise, so it is the sole
-#: alias accepted — inventing more would be surface the docs do not promise.
+# Define aliases once; the CLI imports this table.
 SOURCE_ALIASES: Final[dict[str, str]] = {
     "wiki": "wikipedia",
 }
 
-#: Citation markers as the supplied synthesizer defines them: ``[1]``,
-#: ``[2,3]`` or ``[2, 3]``. Mirrors ``ai.synthesizer._CITATION_RE`` so that what
-#: is detected here is exactly what was generated there.
+# Match citation forms such as [1] and [2, 3], as the supplied generator does.
 _CITATION_RE: Final[re.Pattern[str]] = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
 
 _WHITESPACE_RE: Final[re.Pattern[str]] = re.compile(r"\s+")
 
-#: Characters stripped from the ends of a question when deriving its cache key.
-#: Deliberately a fixed ASCII set rather than ``\W``: punctuation *inside* a
-#: question is meaningful, so "CRISPR-Cas9" must not become "CRISPRCas9".
-#: Unicode dashes and quotes are left alone; they are rare at the edges of a
-#: question, and excluding them keeps the cache key free of ambiguity.
-#:
-#: ``#`` is deliberately **not** stripped. It is not sentence decoration but
-#: part of a name — C#, F#, the ``#include`` directive — so stripping it merged
-#: two genuinely different questions: "what is C#" canonicalised to "what is
-#: c", the same key as "what is C", and the second question was answered from
-#: the first question's sources with nothing downstream able to tell. The two
-#: errors are not symmetric: keeping ``#`` can only cost a cache *miss* on a
-#: question that ends in decorative punctuation ("why?" is unchanged, but
-#: "why#?" would miss), while stripping it can produce a wrong *hit*, which is
-#: silent. When the two disagree, prefer the one that fails loudly.
+# Strip edge punctuation, but keep punctuation inside words.
+# Keep # so questions about C# and C do not share a cache key.
 _EDGE_CHARS: Final[str] = " \t\r\n?!.,;:\"'`()[]{}<>*-/\\|"
 
 
-# ---------------------------------------------------------------------------
 # Sources
-# ---------------------------------------------------------------------------
 
 
 def normalize_source_name(raw: str) -> SourceName:
     """Resolve one user-supplied source name to its canonical value.
-
-    Accepts the canonical names, the aliases in :data:`SOURCE_ALIASES`, and any
-    mix of case and surrounding whitespace.
 
     Raises:
         InvalidRequestError: The name is not a known source or alias.
@@ -112,10 +70,6 @@ def normalize_source_name(raw: str) -> SourceName:
 
 def parse_sources(raw: str | Iterable[str] | None) -> tuple[SourceName, ...]:
     """Parse a comma-separated source list into canonical names.
-
-    Blank entries are ignored, so ``"arxiv,"`` behaves as ``"arxiv"``.
-    Duplicates are collapsed while preserving the order in which the user
-    listed them, because that order determines citation numbering.
 
     Args:
         raw: A comma-separated string, an iterable of such strings, or ``None``
@@ -151,15 +105,8 @@ def parse_sources(raw: str | Iterable[str] | None) -> tuple[SourceName, ...]:
 
 
 def normalize_url(url: str) -> str:
-    """Return a canonical form of ``url`` for comparison and cache identity.
-
-    Normalisation is intentionally shallow. It removes only differences that
-    cannot change which resource is addressed — scheme case, host case, a
-    leading ``www.``, a trailing slash and the fragment. Query strings are
-    preserved because they frequently *do* select the resource.
-
-    ``http`` and ``https`` are treated as the same resource, since deduplicating
-    two links to one page is safe and the alternative ships a duplicate.
+    """Build a URL key for duplicate checks. Ignore scheme and host case, www., a trailing slash,
+    and fragments. Treat HTTP and HTTPS as the same page; keep query strings.
     """
     raw = url.strip()
     if not raw:
@@ -178,11 +125,8 @@ def normalize_url(url: str) -> str:
 
 
 def deduplicate_sources(sources: Iterable[Source]) -> tuple[Source, ...]:
-    """Collapse sources that point at the same resource.
-
-    The first occurrence of a URL is kept and the original ordering is
-    preserved, because the position of a source in this list is what fixes its
-    citation number: reordering here would silently renumber every reference.
+    """Keep the first source for each URL, in its original position, so citation numbers stay
+    stable.
     """
     seen: set[str] = set()
     unique: list[Source] = []
@@ -195,27 +139,15 @@ def deduplicate_sources(sources: Iterable[Source]) -> tuple[Source, ...]:
     return tuple(unique)
 
 
-# ---------------------------------------------------------------------------
 # Queries
-# ---------------------------------------------------------------------------
 
 
 def canonicalize_query(question: str) -> str:
-    """Derive the cache-normal form of a question.
-
-    Two questions map to the same cache entry when they differ only in case,
-    surrounding whitespace, internal whitespace runs, or trailing punctuation.
-    Word order, wording and every character inside a word are preserved:
-    anything more aggressive risks returning one question's cached sources for
-    a different question, which is the one failure this function must not have.
-    See :data:`_EDGE_CHARS` for why ``#`` is excluded from the stripped set.
-
-    The original question is never replaced by this form. It is used only as
-    cache-key material.
+    """Build a cache key by normalizing case, spaces, and edge punctuation. Keep word order and
+    characters inside words, including #. The original question is still sent to providers.
 
     Raises:
-        InvalidRequestError: Nothing remains after normalisation, which happens
-            when the question consists solely of punctuation.
+        InvalidRequestError: The question contains only punctuation.
     """
     collapsed = _WHITESPACE_RE.sub(" ", question).strip()
     canonical = collapsed.casefold().strip(_EDGE_CHARS).strip()
@@ -224,18 +156,11 @@ def canonicalize_query(question: str) -> str:
     return canonical
 
 
-# ---------------------------------------------------------------------------
 # Request validation
-# ---------------------------------------------------------------------------
 
 
 def validate_request(request: ResearchRequest, settings: Settings) -> ResearchRequest:
     """Check a request against the active configuration.
-
-    Structural rules — a non-empty question, at least one distinct source — are
-    already enforced by :class:`~researcher.models.ResearchRequest`. This adds
-    the limits that come from configuration, plus the cross-checks that turn a
-    confusing runtime provider failure into an immediate, actionable message.
 
     Raises:
         InvalidRequestError: The question or result limit is out of range.
@@ -266,13 +191,7 @@ def validate_request(request: ResearchRequest, settings: Settings) -> ResearchRe
 
 
 def _check_web_search_available(settings: Settings) -> None:
-    """Ensure the configured web-search provider can actually be used.
-
-    The supplied providers raise ``ProviderError`` when constructed without a
-    credential, which would surface only once retrieval had already started and
-    other sources had been fetched. Checking up front means the run fails
-    cleanly with exit status 2 and nothing wasted.
-    """
+    """Ensure the configured web-search provider can actually be used."""
     if settings.web_search_provider == "duckduckgo":
         # DuckDuckGo needs no credential but does need its optional package.
         import importlib.util
@@ -295,41 +214,15 @@ def _check_web_search_available(settings: Settings) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
 # Answer validation
-# ---------------------------------------------------------------------------
 
 
 def validate_answer(answer: AnswerWithCitations, sources: Sequence[Source]) -> AnswerWithCitations:
-    """Check that an answer says something and that its references are consistent.
-
-    Two independent checks, and the first is the weaker-sounding one: the
-    answer text must not be blank. A model can return an empty string — a
-    truncated response, a safety filter, an answer written to a field the
-    synthesizer does not read — and the citation checks below cannot notice,
-    because an answer with no prose tends to have no citations either, and an
-    empty citation list is vacuously consistent. Reporting that as success
-    claims an answer that does not exist, so blankness is refused here.
-
-    The second check verifies that every citation index is positive, within
-    range, unique, and still points at the source occupying that position. The
-    last part is the important one: the supplied synthesizer fixes each
-    citation to ``sources[index - 1]`` at the moment it builds the answer, so a
-    mismatch means the source list was reordered afterwards and every reference
-    number in the prose now points at the wrong source.
-
-    Deliberately *not* checked: an answer that has content but cites nothing.
-    That is a worse answer, not a missing one, and the synthesizer produces it
-    legitimately when the sources do not support a citation — rejecting it
-    would discard something the user can read.
-
-    These checks establish internal consistency only. They cannot and do not
-    claim that a source actually supports the claim it is attached to.
+    """Reject blank answers and invalid, repeated, or mismatched citation references. Answers
+    without citations are allowed. These checks do not prove that a source supports a claim.
 
     Raises:
-        InvalidAnswerError: The answer text is empty or whitespace-only, or a
-            citation is out of range, duplicated, or points at a source other
-            than the one at its index.
+        InvalidAnswerError: The answer is blank or a citation reference is inconsistent.
     """
     if not answer.answer.strip():
         raise InvalidAnswerError(
@@ -369,14 +262,7 @@ def validate_answer(answer: AnswerWithCitations, sources: Sequence[Source]) -> A
 
 
 def unreferenced_citation_indices(answer: AnswerWithCitations) -> tuple[int, ...]:
-    """Return markers that appear in the prose but have no matching reference.
-
-    The supplied synthesizer removes out-of-range indices from
-    ``AnswerWithCitations.citations`` without editing the prose, so an answer
-    stating a fact "according to [7]" can ship with only three references. Those
-    numbers are reported here so the caller can warn the user instead of
-    presenting a dangling citation as though it resolved.
-    """
+    """Return markers that appear in the prose but have no matching reference."""
     referenced = {citation.index for citation in answer.citations}
     dangling: set[int] = set()
     for match in _CITATION_RE.finditer(answer.answer):

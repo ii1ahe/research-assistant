@@ -1,25 +1,4 @@
-"""Retry policy and deadlines for outbound calls.
-
-Every call this application makes leaves the process: a source fetch over HTTP,
-or a provider call for synthesis. Each can fail transiently, and each needs an
-upper bound on how long it may take. Both questions are really the same
-question — how long to keep trying — so they are answered together here.
-
-Classification is deliberately *not* done in this module. A failure arrives
-already translated into a :class:`~researcher.errors.ResearcherError`, and this
-module retries exactly when that error reports itself retryable. The reason is
-that translation is the only step that can see the dependency's own exception,
-and therefore the only step that can tell a missing credential from a dropped
-connection: the supplied package raises one coarse ``ProviderError`` for both.
-Keeping that judgement at the boundary and consuming its verdict here means
-there is one classifier rather than two that can drift apart.
-
-The verdict is consumed the same way when it carries a delay: a
-:class:`~researcher.errors.UpstreamRateLimitError` reports the wait the
-provider asked for, and :func:`execute` honours it as a floor under its own
-backoff. The parsing still happened at the boundary; here the number is just
-a number.
-"""
+"""Defines retry delays, respects provider retry hints, and limits how long an operation may run."""
 
 from __future__ import annotations
 
@@ -36,22 +15,14 @@ __all__ = ["Attempts", "RetryPolicy", "deadline", "execute"]
 
 logger = logging.getLogger(__name__)
 
-#: Signature of the sleep used between attempts. Injected so tests exercise the
-#: backoff policy without waiting in real time.
+# Inject sleep so retry tests do not wait for real backoff delays.
 Sleeper = Callable[[float], Awaitable[None]]
 
 
 @dataclass(slots=True)
 class Attempts:
-    """A tally of how many attempts an :func:`execute` call has made.
-
-    Passed in by callers that must report the count *alongside* the outcome, on
-    both the success and the failure path. :class:`~researcher.models.
-    SourceOutcome` carries exactly that field, and a successful return can carry
-    a value or an attempt count but not both — so the count is handed back
-    through here rather than complicating every caller's return type.
-
-    Deliberately mutable, and deliberately not shared between calls.
+    """Track attempts for one call, including calls that fail. Do not share this object between
+    calls.
     """
 
     count: int = field(default=0)
@@ -59,16 +30,14 @@ class Attempts:
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
-    """How many attempts to make, and how long to wait between them.
+    """Settings for retry counts and delays.
 
     Attributes:
-        max_attempts: Total attempts, including the first. One means no retry.
-        initial_backoff: Ceiling on the wait after the first failure.
-        max_backoff: Ceiling on the wait after any failure.
-        retry_timeouts: Whether a timeout is worth another attempt. True for a
-            fetch, which is cheap and idempotent. False for synthesis — see
-            :class:`~researcher.errors.UpstreamTimeoutError` for why a timed-out
-            synthesis may still be running, and paying, after it is abandoned.
+        max_attempts: Total attempts, including the first.
+        initial_backoff: Maximum random delay after the first failure.
+        max_backoff: Maximum random delay after later failures.
+        retry_timeouts: Whether to retry timeouts. Fetches may retry; answer requests
+            may still run and be billed after a timeout, so they do not retry by default.
     """
 
     max_attempts: int = 3
@@ -88,26 +57,14 @@ class RetryPolicy:
             )
 
     def backoff_ceiling(self, attempt: int) -> float:
-        """Return the longest wait permitted *after* attempt number ``attempt``.
-
-        Doubles per attempt and saturates at :attr:`max_backoff`. This is the
-        ceiling rather than the wait itself because the actual wait is jittered
-        down from it — see :func:`execute`.
-
-        The doubling stops once it reaches the cap instead of being computed and
-        then clamped. ``2.0 ** n`` raises ``OverflowError`` from ``n = 1024``,
-        so the obvious one-liner — ``min(max_backoff, initial * 2 ** (n - 1))``
-        — crashes for a large attempt count rather than returning the cap: the
-        clamp is never reached, because the exponentiation raises first. A
-        generous :attr:`max_attempts` would turn the retry loop into an
-        ``OverflowError`` at exactly the moment it was meant to be patient.
+        """Double the retry delay per attempt, stopping at max_backoff before a large exponent
+        can overflow.
         """
         ceiling = self.initial_backoff
         for _ in range(attempt - 1):
             grown = min(ceiling * 2.0, self.max_backoff)
             if grown == ceiling:
-                # Saturated, or `initial_backoff` is zero and doubling cannot
-                # change that. Either way, waiting longer cannot change it.
+                # Stop when doubling no longer changes the delay.
                 break
             ceiling = grown
         return ceiling
@@ -128,43 +85,10 @@ async def execute[T](
     sleep: Sleeper = asyncio.sleep,
     uniform: Callable[[], float] = random.random,
 ) -> T:
-    """Run ``operation``, retrying the failures ``policy`` permits.
-
-    The wait before a retry is drawn uniformly from ``[0, ceiling)`` rather
-    than being the ceiling itself. That is full jitter: when several sources
-    fail together — which is what a provider outage looks like — fixed backoff
-    would march every one of them back to the same endpoint at the same instant
-    and trip the rate limit that caused the failure. Spreading them out is the
-    difference between recovering and synchronising the retry storm.
-
-    One failure overrides that draw: when the error carries the provider's own
-    ``Retry-After``, the wait is the larger of the jittered backoff and that
-    hint. The ceiling is this application's politeness; the hint is the
-    provider's statement about its own quota, and ignoring the larger of the
-    two is what turned a recoverable throttle into a lost question. The hint
-    is not jittered — it is already the spacing the provider computed — and it
-    is not capped by :attr:`RetryPolicy.max_backoff`; the caller's deadline,
-    which wraps this whole call, is the bound that still applies.
-
-    Args:
-        operation: A zero-argument coroutine function performing one attempt.
-            It must be safe to call again. Every operation retried here is
-            either an idempotent HTTP GET or a provider call that failed
-            without returning a result.
-        policy: Attempts, backoff and timeout handling.
-        description: Short phrase naming the operation, for log records.
-        attempts: When supplied, updated with the number of attempts made.
-            Read it after this returns *or raises*; it is correct on both paths.
-        sleep: Injected in tests.
-        uniform: Source of jitter in ``[0, 1)``. Injected in tests.
-
-    Returns:
-        Whatever ``operation`` returned on its first successful attempt.
-
-    Raises:
-        ResearcherError: The failure from the final attempt, re-raised
-            unchanged. Nothing is wrapped, so the caller sees the same error
-            whether it took one attempt or three.
+    """Retry eligible failures with a random delay up to the backoff ceiling. A provider
+    Retry-After hint sets the minimum delay and may exceed max_backoff; the outer deadline
+    still applies. Update attempts on success and failure, and re-raise the last error
+    unchanged.
     """
     attempt = 0
     while True:
@@ -175,8 +99,7 @@ async def execute[T](
             return await operation()
         except ResearcherError as exc:
             if attempt >= policy.max_attempts or not policy.should_retry(exc):
-                # Bare re-raise: the original traceback is part of the
-                # diagnostic, and `raise exc` would append this frame to it.
+                # Bare raise preserves the original traceback.
                 raise
             delay = uniform() * policy.backoff_ceiling(attempt)
             retry_after = (
@@ -210,21 +133,14 @@ async def execute[T](
 
 @asynccontextmanager
 async def deadline(seconds: float, *, source: str) -> AsyncIterator[None]:
-    """Bound the enclosed block to ``seconds`` of wall-clock time.
-
-    Applied per source rather than around a gather: a single deadline over the
-    whole retrieval would let the slowest source consume the budget of the
-    others, which is the case the topic contract exists to prevent.
+    """Limit the enclosed operation to seconds of elapsed time.
 
     Note:
-        A ``TimeoutError`` raised *inside* the block is indistinguishable from
-        the one this context manager produces, and is translated the same way.
-        Acceptable because the enclosed operations do not raise it themselves —
-        ``httpx`` reports its own timeouts as ``httpx.TimeoutException`` — but
-        worth knowing before wrapping anything that does.
+        Any TimeoutError from inside the block is also translated. HTTPX uses its
+        own timeout exception, so its request failures stay separate.
 
     Raises:
-        UpstreamTimeoutError: The block exceeded its deadline.
+        UpstreamTimeoutError: The block exceeds its deadline or raises TimeoutError.
     """
     try:
         async with asyncio.timeout(seconds):
